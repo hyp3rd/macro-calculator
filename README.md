@@ -1,36 +1,119 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NutriTrack - Macro Calculator & Meal Planner
+
+NutriTrack is a modern, interactive web application built with Next.js that helps users calculate their macronutrient targets and plan their daily meals. The app provides a seamless user experience for tracking nutrition goals and creating personalized meal plans.
+
+![NutriTrack Screenshot](public/placeholder.jpg)
+
+## Features
+
+- **Personalized Macro Calculation**: Calculate your daily macronutrient needs based on:
+  - Gender
+  - Age
+  - Weight
+  - Height
+  - Activity level
+  - Fitness goal (lose, maintain, or gain weight)
+  - Diet type preferences (balanced, low carb, low fat)
+
+- **Interactive Meal Planner**:
+  - Search and add foods from a comprehensive food database
+  - Track protein, carbs, fat, and total calories
+  - Edit portion sizes
+  - Replace foods with alternatives
+  - Visual progress indicators for daily macro goals
+
+- **Automated Meal Plan Generation**:
+  - Generate complete daily meal plans that match your macro targets
+  - Meals balanced across breakfast, lunch, dinner, and snacks
+  - Smart algorithm adjusts food combinations to meet specific macro ratios
+
+- **User-Friendly Interface**:
+  - Clean, modern design with visual progress indicators
+  - Intuitive food search functionality
+  - Responsive layout works on desktop and mobile devices
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 18.0 or higher
+- npm, yarn, pnpm, or bun
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Installation
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Clone the repository:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+   ```bash
+   git clone https://github.com/your-username/macro-calculator.git
+   cd macro-calculator
+   ```
 
-## Learn More
+2. Install dependencies:
 
-To learn more about Next.js, take a look at the following resources:
+   ```bash
+   npm install
+   # or
+   yarn
+   # or
+   pnpm install
+   # or
+   bun install
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Run the development server:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   # or
+   pnpm dev
+   # or
+   bun dev
+   ```
 
-## Deploy on Vercel
+4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the application.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## How to Use
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. **Calculate Your Macros**:
+   - Enter your personal information in the Calculator tab
+   - Your BMR, TDEE, target calories, and macronutrients will be automatically calculated
+
+2. **Add Foods to Your Meal Plan**:
+   - Switch to the Meal Planner tab
+   - Search for foods in the database or enter custom nutrition values
+   - Specify portion size and select the meal to add it to
+
+3. **Generate a Meal Plan**:
+   - Click the "Generate Meal Plan" button for an AI-generated meal plan based on your targets
+   - The system will create a balanced plan across all meals that meets your macro goals
+
+4. **Customize Your Plan**:
+   - Edit food portion sizes by clicking the edit icon
+   - Replace foods with alternatives using the search feature
+   - Remove foods you don't want with the delete button
+
+5. **Track Your Progress**:
+   - Visual progress bars show how close you are to reaching your daily targets
+   - The Daily Totals section provides a summary of your current macros vs. targets
+
+## Tech Stack
+
+- **Framework**: [Next.js](https://nextjs.org/)
+- **UI Components**: [shadcn/ui](https://ui.shadcn.com/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Icons**: [Lucide Icons](https://lucide.dev/)
+
+## License
+
+This project is released under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Food database compiled from various nutritional data sources
+- UI design inspired by modern health and fitness applications
+
+---
+
+Built with ❤️ by F.
