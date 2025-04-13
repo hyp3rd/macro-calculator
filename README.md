@@ -2,7 +2,7 @@
 
 NutriTrack is a modern, interactive web application built with Next.js that helps users calculate their macronutrient targets and plan their daily meals. The app provides a seamless user experience for tracking nutrition goals and creating personalized meal plans.
 
-![NutriTrack Screenshot](public/placeholder.jpg)
+![NutriTrack Screenshot](./public/layout.png)
 
 ## Features
 
