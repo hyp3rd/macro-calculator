@@ -1,21 +1,100 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Calculator, Edit2, Plus, RefreshCw, Search, Trash2 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { Calculator, Edit2, Plus, RefreshCw, Search, Trash2, Utensils } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Badge } from './components/ui/badge';
+import { Button } from './components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import { Progress } from './components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+import { Separator } from './components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
+import { foodDatabase } from './data/food-database';
+
+// Type definitions
+type Food = {
+  name: string;
+  protein: number;
+  carbs: number;
+  fat: number;
+  calories: number;
+  category?: string;
+  subCategory?: string;
+  mealTypes: string[];
+};
+
+type FoodItem = {
+  id: number;
+  name: string;
+  protein: number;
+  carbs: number;
+  fat: number;
+  calories: number;
+  portionSize: number;
+  selectedMealId?: number;
+  category?: string;
+  subCategory?: string;
+  originalValues?: {
+    proteinPer100g: number;
+    carbsPer100g: number;
+    fatPer100g: number;
+    caloriesPer100g: number;
+  };
+};
+
+type Meal = {
+  id: number;
+  name: string;
+  foods: FoodItem[];
+};
+
+type PersonalInfo = {
+  gender: 'male' | 'female';
+  age: number;
+  weight: number;
+  height: number;
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
+  goal: 'lose' | 'maintain' | 'gain';
+  dietType: 'balanced' | 'lowCarb' | 'lowFat';
+};
+
+type CalculatedValues = {
+  bmr: number;
+  tdee: number;
+  targetCalories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
+
+type TotalMacros = {
+  protein: number;
+  carbs: number;
+  fat: number;
+  calories: number;
+};
+
+// Constants
+const activityMultipliers: Record<string, number> = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  active: 1.725,
+  veryActive: 1.9
+};
+
+const goalAdjustments: Record<string, number> = {
+  lose: 0.8,
+  maintain: 1.0,
+  gain: 1.15
+};
 
 const MacroCalculator = () => {
   // State for user inputs
-  const [personalInfo, setPersonalInfo] = useState({
+  const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
     gender: "male",
     age: 30,
     weight: 70, // kg
@@ -26,7 +105,7 @@ const MacroCalculator = () => {
   })
 
   // State for calculated values
-  const [calculatedValues, setCalculatedValues] = useState({
+  const [calculatedValues, setCalculatedValues] = useState<CalculatedValues>({
     bmr: 0,
     tdee: 0,
     targetCalories: 0,
@@ -36,7 +115,7 @@ const MacroCalculator = () => {
   })
 
   // State for meal planning
-  const [meals, setMeals] = useState([
+  const [meals, setMeals] = useState<Meal[]>([
     { id: 1, name: "Breakfast", foods: [] },
     { id: 2, name: "Lunch", foods: [] },
     { id: 3, name: "Dinner", foods: [] },
@@ -44,17 +123,19 @@ const MacroCalculator = () => {
   ])
 
   // State for new food being added
-  const [newFood, setNewFood] = useState({
+  const [newFood, setNewFood] = useState<FoodItem>({
+    id: 0,
     name: "",
     protein: 0,
     carbs: 0,
     fat: 0,
     calories: 0,
+    portionSize: 0,
     selectedMealId: 1,
   })
 
   // State for total macros from all foods
-  const [totalMacros, setTotalMacros] = useState({
+  const [totalMacros, setTotalMacros] = useState<TotalMacros>({
     protein: 0,
     carbs: 0,
     fat: 0,
@@ -66,7 +147,12 @@ const MacroCalculator = () => {
   const [mealPlanMessage, setMealPlanMessage] = useState("")
 
   // State for editing food portions
-  const [editingFood, setEditingFood] = useState({
+  const [editingFood, setEditingFood] = useState<{
+    mealId: number | null;
+    foodId: number | null;
+    portionSize: number;
+    originalFood: FoodItem | null;
+  }>({
     mealId: null,
     foodId: null,
     portionSize: 0,
@@ -74,7 +160,14 @@ const MacroCalculator = () => {
   })
 
   // State for replacing food
-  const [replacingFood, setReplacingFood] = useState({
+  const [replacingFood, setReplacingFood] = useState<{
+    mealId: number | null;
+    foodId: number | null;
+    portionSize: number;
+    searchTerm: string;
+    suggestions: Food[];
+    showSuggestions: boolean;
+  }>({
     mealId: null,
     foodId: null,
     portionSize: 0,
@@ -83,392 +176,22 @@ const MacroCalculator = () => {
     showSuggestions: false,
   })
 
-  // Refs for dropdowns
-  const suggestionsRef = useRef(null)
-  const replacementSuggestionsRef = useRef(null)
-
-  // Food database with meal type categorization and food categories
-  const foodDatabase = [
-    {
-      name: "Chicken Breast",
-      protein: 31,
-      carbs: 0,
-      fat: 3.6,
-      calories: 165,
-      mealTypes: ["lunch", "dinner"],
-      category: "lean protein",
-      subCategory: "poultry",
-    },
-    {
-      name: "Salmon",
-      protein: 20,
-      carbs: 0,
-      fat: 13,
-      calories: 208,
-      mealTypes: ["lunch", "dinner"],
-      category: "fatty protein",
-      subCategory: "fish",
-    },
-    {
-      name: "Egg",
-      protein: 13,
-      carbs: 1,
-      fat: 11,
-      calories: 155,
-      mealTypes: ["breakfast", "lunch"],
-      category: "protein",
-      subCategory: "egg",
-    },
-    {
-      name: "Greek Yogurt",
-      protein: 10,
-      carbs: 3.6,
-      fat: 0.4,
-      calories: 59,
-      mealTypes: ["breakfast", "snack"],
-      category: "dairy",
-      subCategory: "yogurt",
-    },
-    {
-      name: "Cottage Cheese",
-      protein: 11,
-      carbs: 3.4,
-      fat: 4.3,
-      calories: 98,
-      mealTypes: ["breakfast", "snack"],
-      category: "dairy",
-      subCategory: "cheese",
-    },
-    {
-      name: "Ground Beef (80/20)",
-      protein: 17,
-      carbs: 0,
-      fat: 20,
-      calories: 250,
-      mealTypes: ["lunch", "dinner"],
-      category: "fatty protein",
-      subCategory: "beef",
-    },
-    {
-      name: "Tofu",
-      protein: 8,
-      carbs: 2,
-      fat: 4,
-      calories: 76,
-      mealTypes: ["lunch", "dinner"],
-      category: "plant protein",
-      subCategory: "soy",
-    },
-    {
-      name: "Lentils",
-      protein: 9,
-      carbs: 20,
-      fat: 0.4,
-      calories: 116,
-      mealTypes: ["lunch", "dinner"],
-      category: "legumes",
-      subCategory: "lentils",
-    },
-    {
-      name: "Black Beans",
-      protein: 8.9,
-      carbs: 24,
-      fat: 0.5,
-      calories: 132,
-      mealTypes: ["lunch", "dinner"],
-      category: "legumes",
-      subCategory: "beans",
-    },
-    {
-      name: "Quinoa",
-      protein: 4.4,
-      carbs: 21,
-      fat: 1.9,
-      calories: 120,
-      mealTypes: ["lunch", "dinner"],
-      category: "grain",
-      subCategory: "quinoa",
-    },
-    {
-      name: "Brown Rice",
-      protein: 2.6,
-      carbs: 23,
-      fat: 0.9,
-      calories: 112,
-      mealTypes: ["lunch", "dinner"],
-      category: "grain",
-      subCategory: "rice",
-    },
-    {
-      name: "White Rice",
-      protein: 2.7,
-      carbs: 28,
-      fat: 0.3,
-      calories: 130,
-      mealTypes: ["lunch", "dinner"],
-      category: "grain",
-      subCategory: "rice",
-    },
-    {
-      name: "Sweet Potato",
-      protein: 1.6,
-      carbs: 20,
-      fat: 0.1,
-      calories: 86,
-      mealTypes: ["lunch", "dinner"],
-      category: "starchy veggie",
-      subCategory: "potato",
-    },
-    {
-      name: "Potato",
-      protein: 2,
-      carbs: 17,
-      fat: 0.1,
-      calories: 77,
-      mealTypes: ["lunch", "dinner"],
-      category: "starchy veggie",
-      subCategory: "potato",
-    },
-    {
-      name: "Broccoli",
-      protein: 2.8,
-      carbs: 7,
-      fat: 0.4,
-      calories: 34,
-      mealTypes: ["lunch", "dinner"],
-      category: "vegetable",
-      subCategory: "cruciferous",
-    },
-    {
-      name: "Spinach",
-      protein: 2.9,
-      carbs: 3.6,
-      fat: 0.4,
-      calories: 23,
-      mealTypes: ["lunch", "dinner"],
-      category: "vegetable",
-      subCategory: "leafy green",
-    },
-    {
-      name: "Avocado",
-      protein: 2,
-      carbs: 9,
-      fat: 15,
-      calories: 160,
-      mealTypes: ["breakfast", "lunch", "snack"],
-      category: "healthy fat",
-      subCategory: "avocado",
-    },
-    {
-      name: "Olive Oil",
-      protein: 0,
-      carbs: 0,
-      fat: 100,
-      calories: 884,
-      mealTypes: ["breakfast", "lunch", "dinner"],
-      category: "oil",
-      subCategory: "olive oil",
-    },
-    {
-      name: "Almonds",
-      protein: 21,
-      carbs: 22,
-      fat: 49,
-      calories: 579,
-      mealTypes: ["snack"],
-      category: "nuts",
-      subCategory: "almonds",
-    },
-    {
-      name: "Peanut Butter",
-      protein: 25,
-      carbs: 20,
-      fat: 50,
-      calories: 588,
-      mealTypes: ["breakfast", "snack"],
-      category: "nut butter",
-      subCategory: "peanut",
-    },
-    {
-      name: "Banana",
-      protein: 1.1,
-      carbs: 23,
-      fat: 0.3,
-      calories: 89,
-      mealTypes: ["breakfast", "snack"],
-      category: "fruit",
-      subCategory: "banana",
-    },
-    {
-      name: "Apple",
-      protein: 0.3,
-      carbs: 14,
-      fat: 0.2,
-      calories: 52,
-      mealTypes: ["snack"],
-      category: "fruit",
-      subCategory: "apple",
-    },
-    {
-      name: "Orange",
-      protein: 0.9,
-      carbs: 12,
-      fat: 0.1,
-      calories: 47,
-      mealTypes: ["snack"],
-      category: "fruit",
-      subCategory: "citrus",
-    },
-    {
-      name: "Milk (Whole)",
-      protein: 3.2,
-      carbs: 4.8,
-      fat: 3.6,
-      calories: 61,
-      mealTypes: ["breakfast", "snack"],
-      category: "dairy",
-      subCategory: "milk",
-    },
-    {
-      name: "Milk (Skim)",
-      protein: 3.4,
-      carbs: 5,
-      fat: 0.1,
-      calories: 34,
-      mealTypes: ["breakfast", "snack"],
-      category: "dairy",
-      subCategory: "milk",
-    },
-    {
-      name: "Cheese (Cheddar)",
-      protein: 25,
-      carbs: 1.3,
-      fat: 33,
-      calories: 402,
-      mealTypes: ["breakfast", "lunch", "snack"],
-      category: "dairy",
-      subCategory: "cheese",
-    },
-    {
-      name: "Bread (White)",
-      protein: 7.6,
-      carbs: 51,
-      fat: 3.3,
-      calories: 265,
-      mealTypes: ["breakfast", "lunch"],
-      category: "grain",
-      subCategory: "bread",
-    },
-    {
-      name: "Bread (Whole Wheat)",
-      protein: 13,
-      carbs: 43,
-      fat: 3.4,
-      calories: 247,
-      mealTypes: ["breakfast", "lunch"],
-      category: "grain",
-      subCategory: "bread",
-    },
-    {
-      name: "Pasta",
-      protein: 5.8,
-      carbs: 25,
-      fat: 1.1,
-      calories: 131,
-      mealTypes: ["lunch", "dinner"],
-      category: "grain",
-      subCategory: "pasta",
-    },
-    {
-      name: "Oats",
-      protein: 16.9,
-      carbs: 66.3,
-      fat: 6.9,
-      calories: 389,
-      mealTypes: ["breakfast"],
-      category: "grain",
-      subCategory: "oats",
-    },
-    {
-      name: "Honey",
-      protein: 0.3,
-      carbs: 82,
-      fat: 0,
-      calories: 304,
-      mealTypes: ["breakfast", "snack"],
-      category: "sweetener",
-      subCategory: "honey",
-    },
-    {
-      name: "Dark Chocolate",
-      protein: 7.8,
-      carbs: 46,
-      fat: 43,
-      calories: 598,
-      mealTypes: ["snack"],
-      category: "sweet",
-      subCategory: "chocolate",
-    },
-    {
-      name: "Protein Powder (Whey)",
-      protein: 80,
-      carbs: 10,
-      fat: 3.5,
-      calories: 400,
-      mealTypes: ["breakfast", "snack"],
-      category: "supplement",
-      subCategory: "protein",
-    },
-    {
-      name: "Protein Bar",
-      protein: 20,
-      carbs: 25,
-      fat: 8,
-      calories: 250,
-      mealTypes: ["snack"],
-      category: "supplement",
-      subCategory: "protein bar",
-    },
-    {
-      name: "Trail Mix",
-      protein: 15,
-      carbs: 45,
-      fat: 30,
-      calories: 500,
-      mealTypes: ["snack"],
-      category: "nuts",
-      subCategory: "mixed nuts",
-    },
-  ]
-
-  // Activity level multipliers
-  const activityMultipliers = {
-    sedentary: 1.2,
-    light: 1.375,
-    moderate: 1.55,
-    active: 1.725,
-    veryActive: 1.9,
-  }
-
-  // Goal adjustments
-  const goalAdjustments = {
-    lose: 0.8, // 20% deficit
-    maintain: 1.0,
-    gain: 1.15, // 15% surplus
-  }
-
   // State for food search and suggestions
   const [foodSearch, setFoodSearch] = useState("")
-  const [foodSuggestions, setFoodSuggestions] = useState([])
+  const [foodSuggestions, setFoodSuggestions] = useState<Food[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
 
   // State for portion size
   const [portionSize, setPortionSize] = useState(100) // Default 100g
 
+  // Refs for dropdowns
+  const suggestionsRef = useRef<HTMLDivElement | null>(null)
+  const replacementSuggestionsRef = useRef<HTMLDivElement | null>(null)
+
   // Handle clicks outside suggestions dropdown
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
         setShowSuggestions(false)
       }
     }
@@ -481,8 +204,8 @@ const MacroCalculator = () => {
 
   // Handle clicks outside replacement suggestions dropdown
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (replacementSuggestionsRef.current && !replacementSuggestionsRef.current.contains(event.target)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (replacementSuggestionsRef.current && !replacementSuggestionsRef.current.contains(event.target as Node)) {
         setReplacingFood((prev) => ({
           ...prev,
           showSuggestions: false,
@@ -571,7 +294,7 @@ const MacroCalculator = () => {
   }
 
   // Handle personal info input changes
-  const handlePersonalInfoChange = (name, value) => {
+  const handlePersonalInfoChange = (name: string, value: string | number) => {
     setPersonalInfo({
       ...personalInfo,
       [name]: value,
@@ -579,7 +302,7 @@ const MacroCalculator = () => {
   }
 
   // Handle food search input
-  const handleFoodSearch = (e) => {
+  const handleFoodSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const searchTerm = e.target.value
     setFoodSearch(searchTerm)
 
@@ -598,7 +321,7 @@ const MacroCalculator = () => {
   }
 
   // Handle food selection from suggestions
-  const handleFoodSelect = (food) => {
+  const handleFoodSelect = (food: Food) => {
     setFoodSearch(food.name)
     setNewFood({
       ...newFood,
@@ -612,7 +335,7 @@ const MacroCalculator = () => {
   }
 
   // Handle portion size change
-  const handlePortionChange = (e) => {
+  const handlePortionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newSize = Number.parseFloat(e.target.value) || 0
     setPortionSize(newSize)
 
@@ -633,7 +356,7 @@ const MacroCalculator = () => {
   }
 
   // Handle new food input changes
-  const handleFoodChange = (e) => {
+  const handleFoodChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
 
     if (name === "protein" || name === "carbs" || name === "fat") {
@@ -664,7 +387,7 @@ const MacroCalculator = () => {
     if (foodSearch.trim() === "") return
 
     const updatedMeals = meals.map((meal) => {
-      if (meal.id === Number.parseInt(newFood.selectedMealId)) {
+      if (meal.id === Number.parseInt(newFood.selectedMealId?.toString() || "0")) {
         return {
           ...meal,
           foods: [
@@ -691,11 +414,13 @@ const MacroCalculator = () => {
 
     // Reset the new food form
     setNewFood({
+      id: 0,
       name: "",
       protein: 0,
       carbs: 0,
       fat: 0,
       calories: 0,
+      portionSize: 0,
       selectedMealId: newFood.selectedMealId,
     })
     setFoodSearch("")
@@ -703,7 +428,7 @@ const MacroCalculator = () => {
   }
 
   // Remove a food from a meal
-  const removeFood = (mealId, foodId) => {
+  const removeFood = (mealId: number, foodId: number) => {
     const updatedMeals = meals.map((meal) => {
       if (meal.id === mealId) {
         return {
@@ -718,7 +443,7 @@ const MacroCalculator = () => {
   }
 
   // Start editing a food's portion size
-  const startEditingFood = (mealId, food) => {
+  const startEditingFood = (mealId: number, food: FoodItem) => {
     setEditingFood({
       mealId,
       foodId: food.id,
@@ -738,7 +463,7 @@ const MacroCalculator = () => {
   }
 
   // Handle portion size change during editing
-  const handleEditPortionChange = (e) => {
+  const handleEditPortionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newSize = Math.max(1, Number.parseInt(e.target.value) || 0)
     setEditingFood({
       ...editingFood,
@@ -787,7 +512,7 @@ const MacroCalculator = () => {
   }
 
   // Start replacing a food
-  const startReplacingFood = (mealId, food) => {
+  const startReplacingFood = (mealId: number, food: FoodItem) => {
     setReplacingFood({
       mealId,
       foodId: food.id,
@@ -811,7 +536,7 @@ const MacroCalculator = () => {
   }
 
   // Handle food search for replacement
-  const handleReplacementSearch = (e) => {
+  const handleReplacementSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const searchTerm = e.target.value
 
     setReplacingFood((prev) => ({
@@ -842,7 +567,7 @@ const MacroCalculator = () => {
   }
 
   // Replace a food with a new one
-  const replaceFood = (newFood) => {
+  const replaceFood = (newFood: Food) => {
     // Calculate the ratio based on the portion size
     const ratio = replacingFood.portionSize / 100
 
@@ -905,7 +630,7 @@ const MacroCalculator = () => {
   }
 
   // Calculate percentage of target macros reached
-  const calculatePercentage = (current, target) => {
+  const calculatePercentage = (current: number, target: number) => {
     if (target === 0) return 0
     return Math.min(Math.round((current / target) * 100), 100)
   }
@@ -918,13 +643,13 @@ const MacroCalculator = () => {
     // Clear current meals
     const clearedMeals = meals.map((meal) => ({
       ...meal,
-      foods: [],
+      foods: [] as FoodItem[],
     }))
 
     setMeals(clearedMeals)
 
     // Set meal target distributions (percentage of daily calories)
-    const mealDistribution = {
+    const mealDistribution: Record<number, number> = {
       1: 0.25, // Breakfast: 25%
       2: 0.35, // Lunch: 35%
       3: 0.3, // Dinner: 30%
@@ -955,9 +680,10 @@ const MacroCalculator = () => {
       const totalPlan = { protein: 0, carbs: 0, fat: 0, calories: 0 }
 
       // For each meal type
-      for (const meal of newMeals) {
-        const mealTypeString = meal.name.toLowerCase()
-        const mealCalorieTarget = calculatedValues.targetCalories * mealDistribution[meal.id]
+      for (let i = 0; i < newMeals.length; i++) {
+              const meal = newMeals[i]
+              const mealTypeString = meal.name.toLowerCase()
+              const mealCalorieTarget = calculatedValues.targetCalories * mealDistribution[meal.id]
 
         // Calculate macro targets for this specific meal
         const mealProteinTarget = calculatedValues.protein * mealDistribution[meal.id]
@@ -978,14 +704,14 @@ const MacroCalculator = () => {
         )
 
         // Algorithm to select foods for this meal
-        const mealFoods = []
+        const mealFoods: FoodItem[] = []
         const currentMealMacros = { protein: 0, carbs: 0, fat: 0, calories: 0 }
         let iterations = 0
         const maxIterations = 150 // Prevent infinite loops
 
         // Keep track of used food categories to avoid redundant combinations
-        const usedCategories = {}
-        const usedSubCategories = {}
+        const usedCategories: Record<string, number> = {}
+        const usedSubCategories: Record<string, boolean> = {}
 
         // Sort foods by how well they match our target macro ratios
         let sortedFoods = [...availableFoods]
@@ -1006,8 +732,8 @@ const MacroCalculator = () => {
 
           // Use specific weights based on the macro ratios we need
           const proteinWeight = proteinRatio > 0.3 ? 3 : 1
-          const carbWeight = carbRatio < 0.2 ? 3 : 1 // Extra weight for low-carb targets
-          const fatWeight = fatRatio > 0.4 ? 3 : 1 // Extra weight for high-fat targets
+          const carbWeight = carbRatio < 0.2 ? 3 : 1
+          const fatWeight = fatRatio > 0.4 ? 3 : 1
 
           const aScore =
             proteinWeight * Math.abs(aProteinRatio - proteinRatio) +
@@ -1058,40 +784,30 @@ const MacroCalculator = () => {
 
             // Apply strict subcategory filtering
             // Never allow two foods with the same subcategory (with a few exceptions)
-            const allowMultiple = ["vegetable"] // Categories where multiple items make sense
+            const allowMultiple = ["vegetable"]
 
             // Filter out foods with duplicate subcategories
             const filteredBySubCategory = candidateFoods.filter((food) => {
-              // Skip subcategory check if food doesn't have a subcategory
-              if (!food.subCategory) return true
-
-              // Allow multiple vegetables but cap at 2
-              if (food.category === "vegetable" && usedCategories["vegetable"] < 2) {
-                return true
-              }
-
-              // For all other foods, strictly enforce subcategory uniqueness
-              return !usedSubCategories[food.subCategory]
+              // Include the food if:
+              // 1. It has no subcategory
+              // 2. Its subcategory is in the allowMultiple list
+              // 3. Its subcategory hasn't been used yet
+              return (
+                !food.subCategory ||
+                allowMultiple.includes(food.subCategory) ||
+                !usedSubCategories[food.subCategory]
+              )
             })
 
             // If we have foods that pass the strict subcategory filter, use those
             if (filteredBySubCategory.length > 0) {
               candidateFoods = filteredBySubCategory
-            } else {
-              // If we're running low on options, at least avoid exact duplicates
-              candidateFoods = candidateFoods.filter(
-                (food) => !mealFoods.some((mealFood) => mealFood.name === food.name),
-              )
             }
 
             // Further prioritize foods from categories we haven't used much
             // This ensures a good balance of food groups
-            const categoryLimitExceptions = ["vegetable"] // Categories where we allow more items
+            const categoryLimitExceptions = ["vegetable"]
             const preferredFoods = candidateFoods.filter((food) => {
-              if (!food.category) return true
-              if (categoryLimitExceptions.includes(food.category)) {
-                return (usedCategories[food.category] || 0) < 2
-              }
               return (usedCategories[food.category] || 0) < 1
             })
 
@@ -1194,16 +910,16 @@ const MacroCalculator = () => {
             if (lowestPercent === proteinPercent) {
               sortedFoods.sort((a, b) => b.protein / b.calories - a.protein / a.calories)
             } else if (lowestPercent === carbPercent) {
-              sortedFoods.sort((a, b) => b.carbs / b.calories - a.carbs / b.calories)
+              sortedFoods.sort((a, b) => b.carbs / b.calories - a.carbs / a.calories)
             } else {
-              sortedFoods.sort((a, b) => b.fat / b.calories - a.fat / b.calories)
+              sortedFoods.sort((a, b) => b.fat / b.calories - a.fat / a.calories)
             }
           }
         }
 
         // Consolidate duplicate foods in the meal
-        const consolidatedFoods = []
-        const foodMap = {}
+        const consolidatedFoods: FoodItem[] = []
+        const foodMap: Record<string, FoodItem> = {}
 
         for (const food of mealFoods) {
           if (foodMap[food.name]) {
@@ -1244,7 +960,10 @@ const MacroCalculator = () => {
         )
 
         // Update this meal with the consolidated foods
-        meal.foods = consolidatedFoods
+        newMeals[i] = {
+          ...newMeals[i],
+          foods: consolidatedFoods
+        }
 
         // Update total plan macros
         totalPlan.protein += mealTotals.protein
@@ -1289,7 +1008,7 @@ const MacroCalculator = () => {
       setMealPlanMessage(qualityMessage)
       setMeals(newMeals)
 
-      // Automatically hide message after 3 seconds
+      // Automatically hide message after 5 seconds
       setTimeout(() => {
         setMealPlanMessage("")
       }, 5000)
@@ -1301,67 +1020,79 @@ const MacroCalculator = () => {
     }
   }
 
-  // Get macro color based on type
-  const getMacroColor = (type) => {
+  const getMacroClass = (type: string) => {
     switch (type) {
       case "protein":
-        return "bg-emerald-500"
+        return "macro-protein"
       case "carbs":
-        return "bg-blue-500"
+        return "macro-carbs"
       case "fat":
-        return "bg-amber-500"
+        return "macro-fat"
       default:
-        return "bg-purple-500"
+        return "macro-calories"
     }
   }
 
-  // Get macro text color based on type
-  const getMacroTextColor = (type) => {
+  // Get progress CSS classes
+  const getProgressClass = (type: string) => {
     switch (type) {
       case "protein":
-        return "text-emerald-600"
+        return "progress-protein"
       case "carbs":
-        return "text-blue-600"
+        return "progress-carbs"
       case "fat":
-        return "text-amber-600"
+        return "progress-fat"
       default:
-        return "text-purple-600"
+        return "progress-calories"
     }
   }
 
   return (
     <div className="w-full max-w-7xl mx-auto">
       <div className="flex flex-col gap-6">
-        <header className="flex items-center justify-between py-6">
-          <div className="flex items-center gap-2">
-            <Calculator className="h-6 w-6 text-emerald-600" />
-            <h1 className="text-2xl font-bold text-slate-800">Macro Calculator & Meal Planner</h1>
+        <header className="flex items-center justify-between py-8">
+          <div className="flex items-center gap-3">
+            <div className="bg-teal-100 p-3 rounded-xl">
+              <Calculator className="h-7 w-7 text-teal-600" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800">NutriTrack</h1>
+              <p className="text-gray-500">Macro Calculator & Meal Planner</p>
+            </div>
           </div>
         </header>
 
         <Tabs defaultValue="calculator" className="w-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="calculator">Calculator</TabsTrigger>
-            <TabsTrigger value="meal-planner">Meal Planner</TabsTrigger>
+          <TabsList className="mb-6 bg-gray-100 p-1 rounded-lg">
+            <TabsTrigger value="calculator" className="rounded-md px-6 py-2.5 data-[state=active]:bg-white">
+              <Calculator className="h-4 w-4 mr-2" />
+              Calculator
+            </TabsTrigger>
+            <TabsTrigger value="meal-planner" className="rounded-md px-6 py-2.5 data-[state=active]:bg-white">
+              <Utensils className="h-4 w-4 mr-2" />
+              Meal Planner
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="calculator">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Personal Information Form */}
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle>Personal Information</CardTitle>
+              <Card className="lg:col-span-2 border-none shadow-lg">
+                <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
+                  <CardTitle className="text-2xl">Personal Information</CardTitle>
                   <CardDescription>Enter your details to calculate your daily macro targets</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="gender">Gender</Label>
+                      <Label htmlFor="gender" className="text-gray-700">
+                        Gender
+                      </Label>
                       <Select
                         value={personalInfo.gender}
                         onValueChange={(value) => handlePersonalInfoChange("gender", value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="bg-gray-50 border-gray-200">
                           <SelectValue placeholder="Select gender" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1372,7 +1103,9 @@ const MacroCalculator = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="age">Age</Label>
+                      <Label htmlFor="age" className="text-gray-700">
+                        Age
+                      </Label>
                       <Input
                         id="age"
                         type="number"
@@ -1380,11 +1113,14 @@ const MacroCalculator = () => {
                         onChange={(e) => handlePersonalInfoChange("age", Number.parseInt(e.target.value))}
                         min="18"
                         max="100"
+                        className="bg-gray-50 border-gray-200"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="weight">Weight (kg)</Label>
+                      <Label htmlFor="weight" className="text-gray-700">
+                        Weight (kg)
+                      </Label>
                       <Input
                         id="weight"
                         type="number"
@@ -1393,11 +1129,14 @@ const MacroCalculator = () => {
                         min="40"
                         max="200"
                         step="0.1"
+                        className="bg-gray-50 border-gray-200"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="height">Height (cm)</Label>
+                      <Label htmlFor="height" className="text-gray-700">
+                        Height (cm)
+                      </Label>
                       <Input
                         id="height"
                         type="number"
@@ -1405,16 +1144,19 @@ const MacroCalculator = () => {
                         onChange={(e) => handlePersonalInfoChange("height", Number.parseInt(e.target.value))}
                         min="130"
                         max="230"
+                        className="bg-gray-50 border-gray-200"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="activityLevel">Activity Level</Label>
+                      <Label htmlFor="activityLevel" className="text-gray-700">
+                        Activity Level
+                      </Label>
                       <Select
                         value={personalInfo.activityLevel}
                         onValueChange={(value) => handlePersonalInfoChange("activityLevel", value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="bg-gray-50 border-gray-200">
                           <SelectValue placeholder="Select activity level" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1430,12 +1172,14 @@ const MacroCalculator = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="goal">Goal</Label>
+                      <Label htmlFor="goal" className="text-gray-700">
+                        Goal
+                      </Label>
                       <Select
                         value={personalInfo.goal}
                         onValueChange={(value) => handlePersonalInfoChange("goal", value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="bg-gray-50 border-gray-200">
                           <SelectValue placeholder="Select goal" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1447,12 +1191,14 @@ const MacroCalculator = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="dietType">Diet Type</Label>
+                      <Label htmlFor="dietType" className="text-gray-700">
+                        Diet Type
+                      </Label>
                       <Select
                         value={personalInfo.dietType}
                         onValueChange={(value) => handlePersonalInfoChange("dietType", value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="bg-gray-50 border-gray-200">
                           <SelectValue placeholder="Select diet type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1467,102 +1213,102 @@ const MacroCalculator = () => {
               </Card>
 
               {/* Calculated Results */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your Daily Targets</CardTitle>
+              <Card className="border-none shadow-lg">
+                <CardHeader className="bg-gradient-to-r from-violet-50 to-rose-50 rounded-t-xl">
+                  <CardTitle className="text-2xl">Your Daily Targets</CardTitle>
                   <CardDescription>Based on your personal information</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-2">
+                <CardContent className="space-y-6 pt-6">
+                  <div className="space-y-3 p-4 bg-gray-50 rounded-xl">
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">BMR:</span>
+                      <span className="text-gray-500">Basal Metabolic Rate:</span>
                       <span className="font-medium">{calculatedValues.bmr} calories</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">TDEE:</span>
+                      <span className="text-gray-500">Total Daily Energy:</span>
                       <span className="font-medium">{calculatedValues.tdee} calories</span>
                     </div>
                     <div className="flex justify-between text-base pt-1">
-                      <span className="font-medium">Target:</span>
-                      <span className="font-bold text-emerald-600">{calculatedValues.targetCalories} calories</span>
+                      <span className="font-medium">Target Calories:</span>
+                      <span className="font-bold text-teal-600">{calculatedValues.targetCalories} calories</span>
                     </div>
                   </div>
 
                   <Separator />
 
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-slate-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-slate-500 mb-1">Protein</p>
-                      <p className="font-bold text-emerald-600">{calculatedValues.protein}g</p>
-                      <p className="text-xs text-slate-400">{calculatedValues.protein * 4} cal</p>
+                    <div className="macro-card border border-teal-200 bg-teal-50 p-4 rounded-xl text-center">
+                      <p className="text-xs text-gray-500 mb-1">Protein</p>
+                      <p className="font-bold text-teal-600 text-xl">{calculatedValues.protein}g</p>
+                      <p className="text-xs text-gray-400">{calculatedValues.protein * 4} cal</p>
                     </div>
-                    <div className="bg-slate-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-slate-500 mb-1">Carbs</p>
-                      <p className="font-bold text-blue-600">{calculatedValues.carbs}g</p>
-                      <p className="text-xs text-slate-400">{calculatedValues.carbs * 4} cal</p>
+                    <div className="macro-card border border-violet-200 bg-violet-50 p-4 rounded-xl text-center">
+                      <p className="text-xs text-gray-500 mb-1">Carbs</p>
+                      <p className="font-bold text-violet-600 text-xl">{calculatedValues.carbs}g</p>
+                      <p className="text-xs text-gray-400">{calculatedValues.carbs * 4} cal</p>
                     </div>
-                    <div className="bg-slate-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-slate-500 mb-1">Fat</p>
-                      <p className="font-bold text-amber-600">{calculatedValues.fat}g</p>
-                      <p className="text-xs text-slate-400">{calculatedValues.fat * 9} cal</p>
+                    <div className="macro-card border border-rose-200 bg-rose-50 p-4 rounded-xl text-center">
+                      <p className="text-xs text-gray-500 mb-1">Fat</p>
+                      <p className="font-bold text-rose-600 text-xl">{calculatedValues.fat}g</p>
+                      <p className="text-xs text-gray-400">{calculatedValues.fat * 9} cal</p>
                     </div>
                   </div>
 
                   <Separator />
 
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-medium">Current Progress</h3>
-                    <div className="space-y-2">
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-gray-700">Current Progress</h3>
+                    <div className="space-y-3">
                       <div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className={getMacroTextColor("protein")}>Protein</span>
+                          <span className="text-teal-600 font-medium">Protein</span>
                           <span>
                             {totalMacros.protein}g / {calculatedValues.protein}g
                           </span>
                         </div>
                         <Progress
                           value={calculatePercentage(totalMacros.protein, calculatedValues.protein)}
-                          className="h-2"
-                          indicatorClassName={getMacroColor("protein")}
+                          className="h-2 bg-teal-100"
+                          indicatorClassName="bg-teal-500"
                         />
                       </div>
                       <div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className={getMacroTextColor("carbs")}>Carbs</span>
+                          <span className="text-violet-600 font-medium">Carbs</span>
                           <span>
                             {totalMacros.carbs}g / {calculatedValues.carbs}g
                           </span>
                         </div>
                         <Progress
                           value={calculatePercentage(totalMacros.carbs, calculatedValues.carbs)}
-                          className="h-2"
-                          indicatorClassName={getMacroColor("carbs")}
+                          className="h-2 bg-violet-100"
+                          indicatorClassName="bg-violet-500"
                         />
                       </div>
                       <div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className={getMacroTextColor("fat")}>Fat</span>
+                          <span className="text-rose-600 font-medium">Fat</span>
                           <span>
                             {totalMacros.fat}g / {calculatedValues.fat}g
                           </span>
                         </div>
                         <Progress
                           value={calculatePercentage(totalMacros.fat, calculatedValues.fat)}
-                          className="h-2"
-                          indicatorClassName={getMacroColor("fat")}
+                          className="h-2 bg-rose-100"
+                          indicatorClassName="bg-rose-500"
                         />
                       </div>
                       <div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className={getMacroTextColor("calories")}>Calories</span>
+                          <span className="text-gray-700 font-medium">Calories</span>
                           <span>
                             {totalMacros.calories} / {calculatedValues.targetCalories}
                           </span>
                         </div>
                         <Progress
                           value={calculatePercentage(totalMacros.calories, calculatedValues.targetCalories)}
-                          className="h-2"
-                          indicatorClassName={getMacroColor("calories")}
+                          className="h-2 bg-gray-100"
+                          indicatorClassName="bg-gray-500"
                         />
                       </div>
                     </div>
@@ -1575,34 +1321,36 @@ const MacroCalculator = () => {
           <TabsContent value="meal-planner">
             <div className="grid grid-cols-1 gap-6">
               {/* Add Food Form */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Add Food</CardTitle>
+              <Card className="border-none shadow-lg">
+                <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
+                  <CardTitle className="text-2xl">Add Food</CardTitle>
                   <CardDescription>Search for foods or enter custom nutrition values</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-4">
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
                     <div className="lg:col-span-2">
-                      <Label htmlFor="foodSearch">Food Name</Label>
+                      <Label htmlFor="foodSearch" className="text-gray-700">
+                        Food Name
+                      </Label>
                       <div className="relative mt-1" ref={suggestionsRef}>
                         <div className="relative">
-                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                          <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                           <Input
                             id="foodSearch"
                             type="text"
                             value={foodSearch}
                             onChange={handleFoodSearch}
-                            className="pl-9"
+                            className="pl-10 bg-gray-50 border-gray-200"
                             placeholder="Search for a food..."
                           />
                         </div>
                         {showSuggestions && foodSuggestions.length > 0 && (
-                          <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border">
+                          <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
                             <ul className="py-1">
                               {foodSuggestions.map((food, index) => (
                                 <li
                                   key={index}
-                                  className="px-4 py-2 hover:bg-slate-100 cursor-pointer"
+                                  className="px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors"
                                   onClick={() => handleFoodSelect(food)}
                                 >
                                   {food.name}
@@ -1615,69 +1363,79 @@ const MacroCalculator = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="portionSize">Portion (g)</Label>
+                      <Label htmlFor="portionSize" className="text-gray-700">
+                        Portion (g)
+                      </Label>
                       <Input
                         id="portionSize"
                         type="number"
                         value={portionSize}
                         onChange={handlePortionChange}
-                        className="mt-1"
+                        className="mt-1 bg-gray-50 border-gray-200"
                         min="0"
                         step="1"
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="protein">Protein (g)</Label>
+                      <Label htmlFor="protein" className="text-gray-700">
+                        Protein (g)
+                      </Label>
                       <Input
                         id="protein"
                         name="protein"
                         type="number"
                         value={newFood.protein}
                         onChange={handleFoodChange}
-                        className="mt-1"
+                        className="mt-1 bg-gray-50 border-gray-200"
                         min="0"
                         step="0.1"
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="carbs">Carbs (g)</Label>
+                      <Label htmlFor="carbs" className="text-gray-700">
+                        Carbs (g)
+                      </Label>
                       <Input
                         id="carbs"
                         name="carbs"
                         type="number"
                         value={newFood.carbs}
                         onChange={handleFoodChange}
-                        className="mt-1"
+                        className="mt-1 bg-gray-50 border-gray-200"
                         min="0"
                         step="0.1"
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="fat">Fat (g)</Label>
+                      <Label htmlFor="fat" className="text-gray-700">
+                        Fat (g)
+                      </Label>
                       <Input
                         id="fat"
                         name="fat"
                         type="number"
                         value={newFood.fat}
                         onChange={handleFoodChange}
-                        className="mt-1"
+                        className="mt-1 bg-gray-50 border-gray-200"
                         min="0"
                         step="0.1"
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="calories">Calories</Label>
+                      <Label htmlFor="calories" className="text-gray-700">
+                        Calories
+                      </Label>
                       <Input
                         id="calories"
                         name="calories"
                         type="number"
                         value={newFood.calories}
                         onChange={handleFoodChange}
-                        className="mt-1 bg-slate-50"
+                        className="mt-1 bg-gray-100 border-gray-200"
                         readOnly
                       />
                     </div>
@@ -1685,12 +1443,14 @@ const MacroCalculator = () => {
 
                   <div className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-grow">
-                      <Label htmlFor="selectedMealId">Add to Meal</Label>
+                      <Label htmlFor="selectedMealId" className="text-gray-700">
+                        Add to Meal
+                      </Label>
                       <Select
-                        value={newFood.selectedMealId.toString()}
+                        value={newFood.selectedMealId?.toString() || ""}
                         onValueChange={(value) => setNewFood({ ...newFood, selectedMealId: Number.parseInt(value) })}
                       >
-                        <SelectTrigger className="mt-1">
+                        <SelectTrigger className="mt-1 bg-gray-50 border-gray-200">
                           <SelectValue placeholder="Select meal" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1704,7 +1464,7 @@ const MacroCalculator = () => {
                     </div>
 
                     <div className="flex items-end">
-                      <Button onClick={addFood} className="w-full sm:w-auto">
+                      <Button onClick={addFood} className="w-full sm:w-auto bg-teal-600 hover:bg-teal-700">
                         <Plus className="h-4 w-4 mr-2" />
                         Add Food
                       </Button>
@@ -1714,17 +1474,17 @@ const MacroCalculator = () => {
               </Card>
 
               {/* Meal Plan */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+              <Card className="border-none shadow-lg">
+                <CardHeader className="flex flex-row items-center justify-between bg-gradient-to-r from-violet-50 to-rose-50 rounded-t-xl">
                   <div>
-                    <CardTitle>Meal Plan</CardTitle>
+                    <CardTitle className="text-2xl">Meal Plan</CardTitle>
                     <CardDescription>Track your daily meals and macros</CardDescription>
                   </div>
                   <Button
                     onClick={generateMealPlan}
                     disabled={isGeneratingMealPlan}
                     variant="outline"
-                    className="ml-auto"
+                    className="ml-auto bg-white hover:bg-gray-50"
                   >
                     {isGeneratingMealPlan ? (
                       <>
@@ -1739,79 +1499,81 @@ const MacroCalculator = () => {
                     )}
                   </Button>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-6">
                   {mealPlanMessage && (
                     <div
-                      className={`mb-6 p-3 rounded-md text-center ${mealPlanMessage.includes("Error") ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"}`}
+                      className={`mb-6 p-4 rounded-xl text-center ${mealPlanMessage.includes("Error") ? "bg-red-50 text-red-600 border border-red-200" : "bg-teal-50 text-teal-600 border border-teal-200"}`}
                     >
                       {mealPlanMessage}
                     </div>
                   )}
 
-                  <div className="space-y-6">
+                  <div className="space-y-8">
                     {meals.map((meal) => (
-                      <div key={meal.id} className="space-y-3">
+                      <div key={meal.id} className="space-y-4">
                         <div className="flex items-center">
-                          <h3 className="text-lg font-medium">{meal.name}</h3>
-                          <Badge variant="outline" className="ml-2">
+                          <h3 className="text-xl font-semibold text-gray-800">{meal.name}</h3>
+                          <Badge variant="outline" className="ml-2 bg-gray-50">
                             {Math.round(meal.foods.reduce((sum, food) => sum + food.calories, 0))} cal
                           </Badge>
                         </div>
 
                         {meal.foods.length === 0 ? (
-                          <p className="text-slate-500 italic">No foods added yet</p>
+                          <div className="p-6 bg-gray-50 rounded-xl text-center">
+                            <p className="text-gray-500 italic">No foods added yet</p>
+                          </div>
                         ) : (
-                          <div className="overflow-x-auto rounded-md border">
+                          <div className="overflow-x-auto rounded-xl border border-gray-200">
                             <table className="w-full">
                               <thead>
-                                <tr className="bg-slate-50 border-b">
-                                  <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                <tr className="bg-gray-50 border-b border-gray-200">
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Food
                                   </th>
-                                  <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Portion (g)
                                   </th>
-                                  <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Protein
                                   </th>
-                                  <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Carbs
                                   </th>
-                                  <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Fat
                                   </th>
-                                  <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Calories
                                   </th>
-                                  <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Actions
                                   </th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {meal.foods.map((food) => (
-                                  <tr key={food.id} className="border-b last:border-0">
+                                  <tr key={food.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                                     <td className="px-4 py-3 whitespace-nowrap">
                                       {replacingFood.foodId === food.id ? (
                                         <div className="relative" ref={replacementSuggestionsRef}>
                                           <div className="relative">
-                                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                                             <Input
                                               type="text"
                                               value={replacingFood.searchTerm}
                                               onChange={handleReplacementSearch}
-                                              className="pl-9 py-1 h-9"
+                                              className="pl-10 py-1 h-9 bg-gray-50 border-gray-200"
                                               placeholder="Search for food..."
                                               autoFocus
                                             />
                                           </div>
                                           {replacingFood.showSuggestions && replacingFood.suggestions.length > 0 && (
-                                            <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border">
+                                            <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
                                               <ul className="py-1">
                                                 {replacingFood.suggestions.map((suggestion, index) => (
                                                   <li
                                                     key={index}
-                                                    className="px-4 py-2 hover:bg-slate-100 cursor-pointer text-sm"
+                                                    className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm transition-colors"
                                                     onClick={() => replaceFood(suggestion)}
                                                   >
                                                     {suggestion.name}
@@ -1832,7 +1594,7 @@ const MacroCalculator = () => {
                                             type="number"
                                             value={editingFood.portionSize}
                                             onChange={handleEditPortionChange}
-                                            className="w-20 py-1 h-9 text-center"
+                                            className="w-20 py-1 h-9 text-center bg-gray-50 border-gray-200"
                                             min="1"
                                             max="1000"
                                           />
@@ -1841,12 +1603,10 @@ const MacroCalculator = () => {
                                         food.portionSize || "-"
                                       )}
                                     </td>
-                                    <td className="px-4 py-3 text-center font-medium text-emerald-600">
-                                      {food.protein}g
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-medium text-blue-600">{food.carbs}g</td>
-                                    <td className="px-4 py-3 text-center font-medium text-amber-600">{food.fat}g</td>
-                                    <td className="px-4 py-3 text-center font-medium">{food.calories}</td>
+                                    <td className="px-4 py-3 text-center font-medium text-teal-600">{food.protein}g</td>
+                                    <td className="px-4 py-3 text-center font-medium text-violet-600">{food.carbs}g</td>
+                                    <td className="px-4 py-3 text-center font-medium text-rose-600">{food.fat}g</td>
+                                    <td className="px-4 py-3 text-center font-medium text-gray-700">{food.calories}</td>
                                     <td className="px-4 py-3 text-right">
                                       {editingFood.foodId === food.id ? (
                                         <div className="flex items-center justify-end space-x-2">
@@ -1854,7 +1614,7 @@ const MacroCalculator = () => {
                                             onClick={saveEditedPortion}
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                            className="h-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
                                           >
                                             Save
                                           </Button>
@@ -1862,7 +1622,7 @@ const MacroCalculator = () => {
                                             onClick={cancelEditing}
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 text-slate-600 hover:text-slate-700 hover:bg-slate-50"
+                                            className="h-8 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
                                           >
                                             Cancel
                                           </Button>
@@ -1872,7 +1632,7 @@ const MacroCalculator = () => {
                                           onClick={cancelReplacing}
                                           variant="ghost"
                                           size="sm"
-                                          className="h-8 text-slate-600 hover:text-slate-700 hover:bg-slate-50"
+                                          className="h-8 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
                                         >
                                           Cancel
                                         </Button>
@@ -1885,7 +1645,7 @@ const MacroCalculator = () => {
                                                   onClick={() => startReplacingFood(meal.id, food)}
                                                   variant="ghost"
                                                   size="icon"
-                                                  className="h-8 w-8"
+                                                  className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                                                 >
                                                   <Search className="h-4 w-4" />
                                                 </Button>
@@ -1903,7 +1663,7 @@ const MacroCalculator = () => {
                                                   onClick={() => startEditingFood(meal.id, food)}
                                                   variant="ghost"
                                                   size="icon"
-                                                  className="h-8 w-8"
+                                                  className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                                                 >
                                                   <Edit2 className="h-4 w-4" />
                                                 </Button>
@@ -1921,7 +1681,7 @@ const MacroCalculator = () => {
                                                   onClick={() => removeFood(meal.id, food.id)}
                                                   variant="ghost"
                                                   size="icon"
-                                                  className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                  className="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
                                                 >
                                                   <Trash2 className="h-4 w-4" />
                                                 </Button>
@@ -1937,21 +1697,21 @@ const MacroCalculator = () => {
                                   </tr>
                                 ))}
                                 {meal.foods.length > 0 && (
-                                  <tr className="bg-slate-50">
-                                    <td className="px-4 py-2 font-medium">Total</td>
-                                    <td className="px-4 py-2 text-center">
+                                  <tr className="bg-gray-50">
+                                    <td className="px-4 py-3 font-medium">Total</td>
+                                    <td className="px-4 py-3 text-center">
                                       {/* Intentionally empty for Portion column */}
                                     </td>
-                                    <td className="px-4 py-2 text-center font-medium text-emerald-600">
+                                    <td className="px-4 py-3 text-center font-medium text-teal-600">
                                       {Math.round(meal.foods.reduce((sum, food) => sum + food.protein, 0))}g
                                     </td>
-                                    <td className="px-4 py-2 text-center font-medium text-blue-600">
+                                    <td className="px-4 py-3 text-center font-medium text-violet-600">
                                       {Math.round(meal.foods.reduce((sum, food) => sum + food.carbs, 0))}g
                                     </td>
-                                    <td className="px-4 py-2 text-center font-medium text-amber-600">
+                                    <td className="px-4 py-3 text-center font-medium text-rose-600">
                                       {Math.round(meal.foods.reduce((sum, food) => sum + food.fat, 0))}g
                                     </td>
-                                    <td className="px-4 py-2 text-center font-medium">
+                                    <td className="px-4 py-3 text-center font-medium text-gray-700">
                                       {Math.round(meal.foods.reduce((sum, food) => sum + food.calories, 0))}
                                     </td>
                                     <td></td>
@@ -1968,53 +1728,53 @@ const MacroCalculator = () => {
                 <CardFooter className="flex flex-col">
                   <Separator className="mb-6" />
                   <div className="w-full">
-                    <h3 className="text-lg font-medium mb-4">Daily Totals</h3>
+                    <h3 className="text-xl font-semibold text-gray-800 mb-4">Daily Totals</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <Card className="bg-slate-50">
+                      <Card className="macro-card border border-teal-200 bg-teal-50 shadow-sm">
                         <CardContent className="p-4 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Protein</p>
-                          <p className="text-xl font-bold text-emerald-600">{totalMacros.protein}g</p>
-                          <p className="text-xs text-slate-400">Target: {calculatedValues.protein}g</p>
+                          <p className="text-sm text-gray-500 mb-1">Protein</p>
+                          <p className="text-2xl font-bold text-teal-600">{totalMacros.protein}g</p>
+                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.protein}g</p>
                           <Progress
                             value={calculatePercentage(totalMacros.protein, calculatedValues.protein)}
-                            className="h-1.5 mt-2"
-                            indicatorClassName={getMacroColor("protein")}
+                            className="h-1.5 bg-teal-100"
+                            indicatorClassName="bg-teal-500"
                           />
                         </CardContent>
                       </Card>
-                      <Card className="bg-slate-50">
+                      <Card className="macro-card border border-violet-200 bg-violet-50 shadow-sm">
                         <CardContent className="p-4 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Carbs</p>
-                          <p className="text-xl font-bold text-blue-600">{totalMacros.carbs}g</p>
-                          <p className="text-xs text-slate-400">Target: {calculatedValues.carbs}g</p>
+                          <p className="text-sm text-gray-500 mb-1">Carbs</p>
+                          <p className="text-2xl font-bold text-violet-600">{totalMacros.carbs}g</p>
+                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.carbs}g</p>
                           <Progress
                             value={calculatePercentage(totalMacros.carbs, calculatedValues.carbs)}
-                            className="h-1.5 mt-2"
-                            indicatorClassName={getMacroColor("carbs")}
+                            className="h-1.5 bg-violet-100"
+                            indicatorClassName="bg-violet-500"
                           />
                         </CardContent>
                       </Card>
-                      <Card className="bg-slate-50">
+                      <Card className="macro-card border border-rose-200 bg-rose-50 shadow-sm">
                         <CardContent className="p-4 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Fat</p>
-                          <p className="text-xl font-bold text-amber-600">{totalMacros.fat}g</p>
-                          <p className="text-xs text-slate-400">Target: {calculatedValues.fat}g</p>
+                          <p className="text-sm text-gray-500 mb-1">Fat</p>
+                          <p className="text-2xl font-bold text-rose-600">{totalMacros.fat}g</p>
+                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.fat}g</p>
                           <Progress
                             value={calculatePercentage(totalMacros.fat, calculatedValues.fat)}
-                            className="h-1.5 mt-2"
-                            indicatorClassName={getMacroColor("fat")}
+                            className="h-1.5 bg-rose-100"
+                            indicatorClassName="bg-rose-500"
                           />
                         </CardContent>
                       </Card>
-                      <Card className="bg-slate-50">
+                      <Card className="macro-card border border-gray-200 bg-gray-50 shadow-sm">
                         <CardContent className="p-4 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Calories</p>
-                          <p className="text-xl font-bold text-purple-600">{totalMacros.calories}</p>
-                          <p className="text-xs text-slate-400">Target: {calculatedValues.targetCalories}</p>
+                          <p className="text-sm text-gray-500 mb-1">Calories</p>
+                          <p className="text-2xl font-bold text-gray-700">{totalMacros.calories}</p>
+                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.targetCalories}</p>
                           <Progress
                             value={calculatePercentage(totalMacros.calories, calculatedValues.targetCalories)}
-                            className="h-1.5 mt-2"
-                            indicatorClassName={getMacroColor("calories")}
+                            className="h-1.5 bg-gray-100"
+                            indicatorClassName="bg-gray-500"
                           />
                         </CardContent>
                       </Card>
