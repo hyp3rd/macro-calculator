@@ -1,96 +1,22 @@
 "use client"
 
-import { Calculator, Edit2, Plus, RefreshCw, Search, Trash2, Utensils } from 'lucide-react';
+import { Calculator, Utensils } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Badge } from './components/ui/badge';
-import { Button } from './components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card';
-import { Input } from './components/ui/input';
-import { Label } from './components/ui/label';
-import { Progress } from './components/ui/progress';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
-import { Separator } from './components/ui/separator';
+import MacroResults from './components/macro/MacroResults';
+import MealPlanner from './components/macro/MealPlanner';
+import PersonalInfoForm from './components/macro/PersonalInfoForm';
+import {
+  CalculatedValues,
+  Food,
+  FoodItem,
+  Meal,
+  PersonalInfo,
+  TotalMacros,
+  activityMultipliers,
+  goalAdjustments
+} from './components/macro/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
 import { foodDatabase } from './data/food-database';
-
-// Type definitions
-type Food = {
-  name: string;
-  protein: number;
-  carbs: number;
-  fat: number;
-  calories: number;
-  category?: string;
-  subCategory?: string;
-  mealTypes: string[];
-};
-
-type FoodItem = {
-  id: number;
-  name: string;
-  protein: number;
-  carbs: number;
-  fat: number;
-  calories: number;
-  portionSize: number;
-  selectedMealId?: number;
-  category?: string;
-  subCategory?: string;
-  originalValues?: {
-    proteinPer100g: number;
-    carbsPer100g: number;
-    fatPer100g: number;
-    caloriesPer100g: number;
-  };
-};
-
-type Meal = {
-  id: number;
-  name: string;
-  foods: FoodItem[];
-};
-
-type PersonalInfo = {
-  gender: 'male' | 'female';
-  age: number;
-  weight: number;
-  height: number;
-  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
-  goal: 'lose' | 'maintain' | 'gain';
-  dietType: 'balanced' | 'lowCarb' | 'lowFat';
-};
-
-type CalculatedValues = {
-  bmr: number;
-  tdee: number;
-  targetCalories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-};
-
-type TotalMacros = {
-  protein: number;
-  carbs: number;
-  fat: number;
-  calories: number;
-};
-
-// Constants
-const activityMultipliers: Record<string, number> = {
-  sedentary: 1.2,
-  light: 1.375,
-  moderate: 1.55,
-  active: 1.725,
-  veryActive: 1.9
-};
-
-const goalAdjustments: Record<string, number> = {
-  lose: 0.8,
-  maintain: 1.0,
-  gain: 1.15
-};
 
 const MacroCalculator = () => {
   // State for user inputs
@@ -185,8 +111,8 @@ const MacroCalculator = () => {
   const [portionSize, setPortionSize] = useState(100) // Default 100g
 
   // Refs for dropdowns
-  const suggestionsRef = useRef<HTMLDivElement | null>(null)
-  const replacementSuggestionsRef = useRef<HTMLDivElement | null>(null)
+  const suggestionsRef = useRef<HTMLDivElement>(null!)
+  const replacementSuggestionsRef = useRef<HTMLDivElement>(null!)
 
   // Handle clicks outside suggestions dropdown
   useEffect(() => {
@@ -629,12 +555,6 @@ const MacroCalculator = () => {
     })
   }
 
-  // Calculate percentage of target macros reached
-  const calculatePercentage = (current: number, target: number) => {
-    if (target === 0) return 0
-    return Math.min(Math.round((current / target) * 100), 100)
-  }
-
   // Generate a full day meal plan based on target macros
   const generateMealPlan = async () => {
     setIsGeneratingMealPlan(true)
@@ -1020,33 +940,6 @@ const MacroCalculator = () => {
     }
   }
 
-  const getMacroClass = (type: string) => {
-    switch (type) {
-      case "protein":
-        return "macro-protein"
-      case "carbs":
-        return "macro-carbs"
-      case "fat":
-        return "macro-fat"
-      default:
-        return "macro-calories"
-    }
-  }
-
-  // Get progress CSS classes
-  const getProgressClass = (type: string) => {
-    switch (type) {
-      case "protein":
-        return "progress-protein"
-      case "carbs":
-        return "progress-carbs"
-      case "fat":
-        return "progress-fat"
-      default:
-        return "progress-calories"
-    }
-  }
-
   return (
     <div className="w-full max-w-7xl mx-auto">
       <div className="flex flex-col gap-6">
@@ -1076,713 +969,52 @@ const MacroCalculator = () => {
 
           <TabsContent value="calculator">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Personal Information Form */}
-              <Card className="lg:col-span-2 border-none shadow-lg">
-                <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
-                  <CardTitle className="text-2xl">Personal Information</CardTitle>
-                  <CardDescription>Enter your details to calculate your daily macro targets</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="gender" className="text-gray-700">
-                        Gender
-                      </Label>
-                      <Select
-                        value={personalInfo.gender}
-                        onValueChange={(value) => handlePersonalInfoChange("gender", value)}
-                      >
-                        <SelectTrigger className="bg-gray-50 border-gray-200">
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="male">Male</SelectItem>
-                          <SelectItem value="female">Female</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="age" className="text-gray-700">
-                        Age
-                      </Label>
-                      <Input
-                        id="age"
-                        type="number"
-                        value={personalInfo.age}
-                        onChange={(e) => handlePersonalInfoChange("age", Number.parseInt(e.target.value))}
-                        min="18"
-                        max="100"
-                        className="bg-gray-50 border-gray-200"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="weight" className="text-gray-700">
-                        Weight (kg)
-                      </Label>
-                      <Input
-                        id="weight"
-                        type="number"
-                        value={personalInfo.weight}
-                        onChange={(e) => handlePersonalInfoChange("weight", Number.parseFloat(e.target.value))}
-                        min="40"
-                        max="200"
-                        step="0.1"
-                        className="bg-gray-50 border-gray-200"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="height" className="text-gray-700">
-                        Height (cm)
-                      </Label>
-                      <Input
-                        id="height"
-                        type="number"
-                        value={personalInfo.height}
-                        onChange={(e) => handlePersonalInfoChange("height", Number.parseInt(e.target.value))}
-                        min="130"
-                        max="230"
-                        className="bg-gray-50 border-gray-200"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="activityLevel" className="text-gray-700">
-                        Activity Level
-                      </Label>
-                      <Select
-                        value={personalInfo.activityLevel}
-                        onValueChange={(value) => handlePersonalInfoChange("activityLevel", value)}
-                      >
-                        <SelectTrigger className="bg-gray-50 border-gray-200">
-                          <SelectValue placeholder="Select activity level" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sedentary">Sedentary (little or no exercise)</SelectItem>
-                          <SelectItem value="light">Light (exercise 1-3 days/week)</SelectItem>
-                          <SelectItem value="moderate">Moderate (exercise 3-5 days/week)</SelectItem>
-                          <SelectItem value="active">Active (exercise 6-7 days/week)</SelectItem>
-                          <SelectItem value="veryActive">
-                            Very Active (physically demanding job or 2x training)
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="goal" className="text-gray-700">
-                        Goal
-                      </Label>
-                      <Select
-                        value={personalInfo.goal}
-                        onValueChange={(value) => handlePersonalInfoChange("goal", value)}
-                      >
-                        <SelectTrigger className="bg-gray-50 border-gray-200">
-                          <SelectValue placeholder="Select goal" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="lose">Lose Weight</SelectItem>
-                          <SelectItem value="maintain">Maintain Weight</SelectItem>
-                          <SelectItem value="gain">Gain Weight/Muscle</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="dietType" className="text-gray-700">
-                        Diet Type
-                      </Label>
-                      <Select
-                        value={personalInfo.dietType}
-                        onValueChange={(value) => handlePersonalInfoChange("dietType", value)}
-                      >
-                        <SelectTrigger className="bg-gray-50 border-gray-200">
-                          <SelectValue placeholder="Select diet type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="balanced">Balanced (Standard)</SelectItem>
-                          <SelectItem value="lowCarb">Low Carb</SelectItem>
-                          <SelectItem value="lowFat">Low Fat</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Calculated Results */}
-              <Card className="border-none shadow-lg">
-                <CardHeader className="bg-gradient-to-r from-violet-50 to-rose-50 rounded-t-xl">
-                  <CardTitle className="text-2xl">Your Daily Targets</CardTitle>
-                  <CardDescription>Based on your personal information</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6 pt-6">
-                  <div className="space-y-3 p-4 bg-gray-50 rounded-xl">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Basal Metabolic Rate:</span>
-                      <span className="font-medium">{calculatedValues.bmr} calories</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Total Daily Energy:</span>
-                      <span className="font-medium">{calculatedValues.tdee} calories</span>
-                    </div>
-                    <div className="flex justify-between text-base pt-1">
-                      <span className="font-medium">Target Calories:</span>
-                      <span className="font-bold text-teal-600">{calculatedValues.targetCalories} calories</span>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="macro-card border border-teal-200 bg-teal-50 p-4 rounded-xl text-center">
-                      <p className="text-xs text-gray-500 mb-1">Protein</p>
-                      <p className="font-bold text-teal-600 text-xl">{calculatedValues.protein}g</p>
-                      <p className="text-xs text-gray-400">{calculatedValues.protein * 4} cal</p>
-                    </div>
-                    <div className="macro-card border border-violet-200 bg-violet-50 p-4 rounded-xl text-center">
-                      <p className="text-xs text-gray-500 mb-1">Carbs</p>
-                      <p className="font-bold text-violet-600 text-xl">{calculatedValues.carbs}g</p>
-                      <p className="text-xs text-gray-400">{calculatedValues.carbs * 4} cal</p>
-                    </div>
-                    <div className="macro-card border border-rose-200 bg-rose-50 p-4 rounded-xl text-center">
-                      <p className="text-xs text-gray-500 mb-1">Fat</p>
-                      <p className="font-bold text-rose-600 text-xl">{calculatedValues.fat}g</p>
-                      <p className="text-xs text-gray-400">{calculatedValues.fat * 9} cal</p>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-700">Current Progress</h3>
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-teal-600 font-medium">Protein</span>
-                          <span>
-                            {totalMacros.protein}g / {calculatedValues.protein}g
-                          </span>
-                        </div>
-                        <Progress
-                          value={calculatePercentage(totalMacros.protein, calculatedValues.protein)}
-                          className="h-2 bg-teal-100"
-                          indicatorClassName="bg-teal-500"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-violet-600 font-medium">Carbs</span>
-                          <span>
-                            {totalMacros.carbs}g / {calculatedValues.carbs}g
-                          </span>
-                        </div>
-                        <Progress
-                          value={calculatePercentage(totalMacros.carbs, calculatedValues.carbs)}
-                          className="h-2 bg-violet-100"
-                          indicatorClassName="bg-violet-500"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-rose-600 font-medium">Fat</span>
-                          <span>
-                            {totalMacros.fat}g / {calculatedValues.fat}g
-                          </span>
-                        </div>
-                        <Progress
-                          value={calculatePercentage(totalMacros.fat, calculatedValues.fat)}
-                          className="h-2 bg-rose-100"
-                          indicatorClassName="bg-rose-500"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-gray-700 font-medium">Calories</span>
-                          <span>
-                            {totalMacros.calories} / {calculatedValues.targetCalories}
-                          </span>
-                        </div>
-                        <Progress
-                          value={calculatePercentage(totalMacros.calories, calculatedValues.targetCalories)}
-                          className="h-2 bg-gray-100"
-                          indicatorClassName="bg-gray-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <PersonalInfoForm
+                personalInfo={personalInfo}
+                onPersonalInfoChange={handlePersonalInfoChange}
+              />
+              <MacroResults
+                calculatedValues={calculatedValues}
+                totalMacros={totalMacros}
+              />
             </div>
           </TabsContent>
 
           <TabsContent value="meal-planner">
-            <div className="grid grid-cols-1 gap-6">
-              {/* Add Food Form */}
-              <Card className="border-none shadow-lg">
-                <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
-                  <CardTitle className="text-2xl">Add Food</CardTitle>
-                  <CardDescription>Search for foods or enter custom nutrition values</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-                    <div className="lg:col-span-2">
-                      <Label htmlFor="foodSearch" className="text-gray-700">
-                        Food Name
-                      </Label>
-                      <div className="relative mt-1" ref={suggestionsRef}>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                          <Input
-                            id="foodSearch"
-                            type="text"
-                            value={foodSearch}
-                            onChange={handleFoodSearch}
-                            className="pl-10 bg-gray-50 border-gray-200"
-                            placeholder="Search for a food..."
-                          />
-                        </div>
-                        {showSuggestions && foodSuggestions.length > 0 && (
-                          <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
-                            <ul className="py-1">
-                              {foodSuggestions.map((food, index) => (
-                                <li
-                                  key={index}
-                                  className="px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors"
-                                  onClick={() => handleFoodSelect(food)}
-                                >
-                                  {food.name}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="portionSize" className="text-gray-700">
-                        Portion (g)
-                      </Label>
-                      <Input
-                        id="portionSize"
-                        type="number"
-                        value={portionSize}
-                        onChange={handlePortionChange}
-                        className="mt-1 bg-gray-50 border-gray-200"
-                        min="0"
-                        step="1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="protein" className="text-gray-700">
-                        Protein (g)
-                      </Label>
-                      <Input
-                        id="protein"
-                        name="protein"
-                        type="number"
-                        value={newFood.protein}
-                        onChange={handleFoodChange}
-                        className="mt-1 bg-gray-50 border-gray-200"
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="carbs" className="text-gray-700">
-                        Carbs (g)
-                      </Label>
-                      <Input
-                        id="carbs"
-                        name="carbs"
-                        type="number"
-                        value={newFood.carbs}
-                        onChange={handleFoodChange}
-                        className="mt-1 bg-gray-50 border-gray-200"
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="fat" className="text-gray-700">
-                        Fat (g)
-                      </Label>
-                      <Input
-                        id="fat"
-                        name="fat"
-                        type="number"
-                        value={newFood.fat}
-                        onChange={handleFoodChange}
-                        className="mt-1 bg-gray-50 border-gray-200"
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="calories" className="text-gray-700">
-                        Calories
-                      </Label>
-                      <Input
-                        id="calories"
-                        name="calories"
-                        type="number"
-                        value={newFood.calories}
-                        onChange={handleFoodChange}
-                        className="mt-1 bg-gray-100 border-gray-200"
-                        readOnly
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="flex-grow">
-                      <Label htmlFor="selectedMealId" className="text-gray-700">
-                        Add to Meal
-                      </Label>
-                      <Select
-                        value={newFood.selectedMealId?.toString() || ""}
-                        onValueChange={(value) => setNewFood({ ...newFood, selectedMealId: Number.parseInt(value) })}
-                      >
-                        <SelectTrigger className="mt-1 bg-gray-50 border-gray-200">
-                          <SelectValue placeholder="Select meal" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {meals.map((meal) => (
-                            <SelectItem key={meal.id} value={meal.id.toString()}>
-                              {meal.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-end">
-                      <Button onClick={addFood} className="w-full sm:w-auto bg-teal-600 hover:bg-teal-700">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Food
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Meal Plan */}
-              <Card className="border-none shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between bg-gradient-to-r from-violet-50 to-rose-50 rounded-t-xl">
-                  <div>
-                    <CardTitle className="text-2xl">Meal Plan</CardTitle>
-                    <CardDescription>Track your daily meals and macros</CardDescription>
-                  </div>
-                  <Button
-                    onClick={generateMealPlan}
-                    disabled={isGeneratingMealPlan}
-                    variant="outline"
-                    className="ml-auto bg-white hover:bg-gray-50"
-                  >
-                    {isGeneratingMealPlan ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Generate Meal Plan
-                      </>
-                    )}
-                  </Button>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  {mealPlanMessage && (
-                    <div
-                      className={`mb-6 p-4 rounded-xl text-center ${mealPlanMessage.includes("Error") ? "bg-red-50 text-red-600 border border-red-200" : "bg-teal-50 text-teal-600 border border-teal-200"}`}
-                    >
-                      {mealPlanMessage}
-                    </div>
-                  )}
-
-                  <div className="space-y-8">
-                    {meals.map((meal) => (
-                      <div key={meal.id} className="space-y-4">
-                        <div className="flex items-center">
-                          <h3 className="text-xl font-semibold text-gray-800">{meal.name}</h3>
-                          <Badge variant="outline" className="ml-2 bg-gray-50">
-                            {Math.round(meal.foods.reduce((sum, food) => sum + food.calories, 0))} cal
-                          </Badge>
-                        </div>
-
-                        {meal.foods.length === 0 ? (
-                          <div className="p-6 bg-gray-50 rounded-xl text-center">
-                            <p className="text-gray-500 italic">No foods added yet</p>
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto rounded-xl border border-gray-200">
-                            <table className="w-full">
-                              <thead>
-                                <tr className="bg-gray-50 border-b border-gray-200">
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Food
-                                  </th>
-                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Portion (g)
-                                  </th>
-                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Protein
-                                  </th>
-                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Carbs
-                                  </th>
-                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Fat
-                                  </th>
-                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Calories
-                                  </th>
-                                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Actions
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {meal.foods.map((food) => (
-                                  <tr key={food.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                      {replacingFood.foodId === food.id ? (
-                                        <div className="relative" ref={replacementSuggestionsRef}>
-                                          <div className="relative">
-                                            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                                            <Input
-                                              type="text"
-                                              value={replacingFood.searchTerm}
-                                              onChange={handleReplacementSearch}
-                                              className="pl-10 py-1 h-9 bg-gray-50 border-gray-200"
-                                              placeholder="Search for food..."
-                                              autoFocus
-                                            />
-                                          </div>
-                                          {replacingFood.showSuggestions && replacingFood.suggestions.length > 0 && (
-                                            <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
-                                              <ul className="py-1">
-                                                {replacingFood.suggestions.map((suggestion, index) => (
-                                                  <li
-                                                    key={index}
-                                                    className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm transition-colors"
-                                                    onClick={() => replaceFood(suggestion)}
-                                                  >
-                                                    {suggestion.name}
-                                                  </li>
-                                                ))}
-                                              </ul>
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        food.name
-                                      )}
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      {editingFood.foodId === food.id ? (
-                                        <div className="flex items-center justify-center">
-                                          <Input
-                                            type="number"
-                                            value={editingFood.portionSize}
-                                            onChange={handleEditPortionChange}
-                                            className="w-20 py-1 h-9 text-center bg-gray-50 border-gray-200"
-                                            min="1"
-                                            max="1000"
-                                          />
-                                        </div>
-                                      ) : (
-                                        food.portionSize || "-"
-                                      )}
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-medium text-teal-600">{food.protein}g</td>
-                                    <td className="px-4 py-3 text-center font-medium text-violet-600">{food.carbs}g</td>
-                                    <td className="px-4 py-3 text-center font-medium text-rose-600">{food.fat}g</td>
-                                    <td className="px-4 py-3 text-center font-medium text-gray-700">{food.calories}</td>
-                                    <td className="px-4 py-3 text-right">
-                                      {editingFood.foodId === food.id ? (
-                                        <div className="flex items-center justify-end space-x-2">
-                                          <Button
-                                            onClick={saveEditedPortion}
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
-                                          >
-                                            Save
-                                          </Button>
-                                          <Button
-                                            onClick={cancelEditing}
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
-                                          >
-                                            Cancel
-                                          </Button>
-                                        </div>
-                                      ) : replacingFood.foodId === food.id ? (
-                                        <Button
-                                          onClick={cancelReplacing}
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-8 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
-                                        >
-                                          Cancel
-                                        </Button>
-                                      ) : (
-                                        <div className="flex items-center justify-end space-x-1">
-                                          <TooltipProvider>
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <Button
-                                                  onClick={() => startReplacingFood(meal.id, food)}
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                                                >
-                                                  <Search className="h-4 w-4" />
-                                                </Button>
-                                              </TooltipTrigger>
-                                              <TooltipContent>
-                                                <p>Replace food</p>
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          </TooltipProvider>
-
-                                          <TooltipProvider>
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <Button
-                                                  onClick={() => startEditingFood(meal.id, food)}
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                                                >
-                                                  <Edit2 className="h-4 w-4" />
-                                                </Button>
-                                              </TooltipTrigger>
-                                              <TooltipContent>
-                                                <p>Edit portion</p>
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          </TooltipProvider>
-
-                                          <TooltipProvider>
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <Button
-                                                  onClick={() => removeFood(meal.id, food.id)}
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
-                                                >
-                                                  <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                              </TooltipTrigger>
-                                              <TooltipContent>
-                                                <p>Remove food</p>
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          </TooltipProvider>
-                                        </div>
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                                {meal.foods.length > 0 && (
-                                  <tr className="bg-gray-50">
-                                    <td className="px-4 py-3 font-medium">Total</td>
-                                    <td className="px-4 py-3 text-center">
-                                      {/* Intentionally empty for Portion column */}
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-medium text-teal-600">
-                                      {Math.round(meal.foods.reduce((sum, food) => sum + food.protein, 0))}g
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-medium text-violet-600">
-                                      {Math.round(meal.foods.reduce((sum, food) => sum + food.carbs, 0))}g
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-medium text-rose-600">
-                                      {Math.round(meal.foods.reduce((sum, food) => sum + food.fat, 0))}g
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-medium text-gray-700">
-                                      {Math.round(meal.foods.reduce((sum, food) => sum + food.calories, 0))}
-                                    </td>
-                                    <td></td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-                <CardFooter className="flex flex-col">
-                  <Separator className="mb-6" />
-                  <div className="w-full">
-                    <h3 className="text-xl font-semibold text-gray-800 mb-4">Daily Totals</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <Card className="macro-card border border-teal-200 bg-teal-50 shadow-sm">
-                        <CardContent className="p-4 text-center">
-                          <p className="text-sm text-gray-500 mb-1">Protein</p>
-                          <p className="text-2xl font-bold text-teal-600">{totalMacros.protein}g</p>
-                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.protein}g</p>
-                          <Progress
-                            value={calculatePercentage(totalMacros.protein, calculatedValues.protein)}
-                            className="h-1.5 bg-teal-100"
-                            indicatorClassName="bg-teal-500"
-                          />
-                        </CardContent>
-                      </Card>
-                      <Card className="macro-card border border-violet-200 bg-violet-50 shadow-sm">
-                        <CardContent className="p-4 text-center">
-                          <p className="text-sm text-gray-500 mb-1">Carbs</p>
-                          <p className="text-2xl font-bold text-violet-600">{totalMacros.carbs}g</p>
-                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.carbs}g</p>
-                          <Progress
-                            value={calculatePercentage(totalMacros.carbs, calculatedValues.carbs)}
-                            className="h-1.5 bg-violet-100"
-                            indicatorClassName="bg-violet-500"
-                          />
-                        </CardContent>
-                      </Card>
-                      <Card className="macro-card border border-rose-200 bg-rose-50 shadow-sm">
-                        <CardContent className="p-4 text-center">
-                          <p className="text-sm text-gray-500 mb-1">Fat</p>
-                          <p className="text-2xl font-bold text-rose-600">{totalMacros.fat}g</p>
-                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.fat}g</p>
-                          <Progress
-                            value={calculatePercentage(totalMacros.fat, calculatedValues.fat)}
-                            className="h-1.5 bg-rose-100"
-                            indicatorClassName="bg-rose-500"
-                          />
-                        </CardContent>
-                      </Card>
-                      <Card className="macro-card border border-gray-200 bg-gray-50 shadow-sm">
-                        <CardContent className="p-4 text-center">
-                          <p className="text-sm text-gray-500 mb-1">Calories</p>
-                          <p className="text-2xl font-bold text-gray-700">{totalMacros.calories}</p>
-                          <p className="text-xs text-gray-400 mb-2">Target: {calculatedValues.targetCalories}</p>
-                          <Progress
-                            value={calculatePercentage(totalMacros.calories, calculatedValues.targetCalories)}
-                            className="h-1.5 bg-gray-100"
-                            indicatorClassName="bg-gray-500"
-                          />
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </div>
-                </CardFooter>
-              </Card>
-            </div>
+            <MealPlanner
+              calculatedValues={calculatedValues}
+              totalMacros={totalMacros}
+              meals={meals}
+              newFood={newFood}
+              foodSearch={foodSearch}
+              foodSuggestions={foodSuggestions}
+              showSuggestions={showSuggestions}
+              portionSize={portionSize}
+              isGeneratingMealPlan={isGeneratingMealPlan}
+              mealPlanMessage={mealPlanMessage}
+              editingFood={editingFood}
+              replacingFood={replacingFood}
+              suggestionsRef={suggestionsRef}
+              replacementSuggestionsRef={replacementSuggestionsRef}
+              setNewFood={setNewFood}
+              setFoodSearch={setFoodSearch}
+              setPortionSize={setPortionSize}
+              handleFoodSearch={handleFoodSearch}
+              handleFoodSelect={handleFoodSelect}
+              handlePortionChange={handlePortionChange}
+              handleFoodChange={handleFoodChange}
+              addFood={addFood}
+              removeFood={removeFood}
+              startEditingFood={startEditingFood}
+              cancelEditing={cancelEditing}
+              handleEditPortionChange={handleEditPortionChange}
+              saveEditedPortion={saveEditedPortion}
+              startReplacingFood={startReplacingFood}
+              cancelReplacing={cancelReplacing}
+              handleReplacementSearch={handleReplacementSearch}
+              replaceFood={replaceFood}
+              generateMealPlan={generateMealPlan}
+            />
           </TabsContent>
         </Tabs>
       </div>
