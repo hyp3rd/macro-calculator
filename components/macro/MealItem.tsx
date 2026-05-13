@@ -1,11 +1,19 @@
 "use client";
 
 import React from "react";
+import { BookmarkPlus, MoreHorizontal, Plus } from "lucide-react";
 import {
   Food,
   FoodItem as FoodItemType,
   Meal as MealType,
 } from "../../components/macro/types";
+import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import FoodItem from "./FoodItem";
 
 interface MealItemProps {
@@ -34,6 +42,8 @@ interface MealItemProps {
   handleReplacementSearch: (e: React.ChangeEvent<HTMLInputElement>) => void;
   replaceFood: (newFood: Food) => void;
   removeFood: (mealId: number, foodId: number) => void;
+  onSaveAsTemplate: (mealId: number) => void;
+  onAddFromTemplate: (mealId: number) => void;
 }
 
 const MealItem: React.FC<MealItemProps> = ({
@@ -50,6 +60,8 @@ const MealItem: React.FC<MealItemProps> = ({
   handleReplacementSearch,
   replaceFood,
   removeFood,
+  onSaveAsTemplate,
+  onAddFromTemplate,
 }) => {
   const totalProtein = Math.round(
     meal.foods.reduce((s, f) => s + f.protein, 0),
@@ -62,13 +74,48 @@ const MealItem: React.FC<MealItemProps> = ({
 
   return (
     <div className="px-5 py-4">
-      <div className="mb-3 flex items-baseline justify-between">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold tracking-tight text-foreground">
           {meal.name}
         </h4>
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {totalCalories} kcal · P{totalProtein} · C{totalCarbs} · F{totalFat}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            {totalCalories} kcal · P{totalProtein} · C{totalCarbs} · F{totalFat}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground"
+                aria-label={`${meal.name} actions`}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-44"
+            >
+              <DropdownMenuItem
+                onClick={() => onAddFromTemplate(meal.id)}
+                className="gap-2"
+              >
+                <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                Add from template
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onSaveAsTemplate(meal.id)}
+                disabled={meal.foods.length === 0}
+                className="gap-2"
+              >
+                <BookmarkPlus className="h-3.5 w-3.5 text-muted-foreground" />
+                Save as template
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {meal.foods.length === 0 ? (

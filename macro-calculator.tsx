@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ApplyTemplateDialog } from "./components/macro/ApplyTemplateDialog";
 import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
 import MealPlanner from "./components/macro/MealPlanner";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
+import { SaveTemplateDialog } from "./components/macro/SaveTemplateDialog";
 import {
   CalculatedValues,
   Food,
@@ -16,32 +18,60 @@ import {
 import { AppShell } from "./components/shell/AppShell";
 import type { ViewKey } from "./components/shell/Sidebar";
 import { foodDatabase } from "./data/food-database";
+import { useDailyLog } from "./hooks/use-daily-log";
 import { useFoodSearch } from "./hooks/use-food-search";
-import { addCustomFood, customToFood, listCustomFoods } from "./lib/db";
+import { useProfile } from "./hooks/use-profile";
+import { useToday } from "./hooks/use-today";
+import {
+  addCustomFood,
+  customToFood,
+  listCustomFoods,
+  type MealTemplate,
+} from "./lib/db";
 import { computeMacros } from "./lib/macros";
 import { planDay, summarisePlan } from "./lib/meal-planner";
 
-const MacroCalculator = () => {
-  // State for user inputs
-  const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
-    gender: "male",
-    age: 30,
-    weight: 70,
-    height: 175,
-    activityLevel: "moderate",
-    goal: "maintain",
-    dietType: "balanced",
-    weeklyRateKg: 0.5,
-    manualTdee: null,
-  });
+const DEFAULT_PROFILE: PersonalInfo = {
+  gender: "male",
+  age: 30,
+  weight: 70,
+  height: 175,
+  activityLevel: "moderate",
+  goal: "maintain",
+  dietType: "balanced",
+  weeklyRateKg: 0.5,
+  manualTdee: null,
+};
 
-  // State for meal planning
-  const [meals, setMeals] = useState<Meal[]>([
-    { id: 1, name: "Breakfast", foods: [] },
-    { id: 2, name: "Lunch", foods: [] },
-    { id: 3, name: "Dinner", foods: [] },
-    { id: 4, name: "Snacks", foods: [] },
-  ]);
+const DEFAULT_MEALS: Meal[] = [
+  { id: 1, name: "Breakfast", foods: [] },
+  { id: 2, name: "Lunch", foods: [] },
+  { id: 3, name: "Dinner", foods: [] },
+  { id: 4, name: "Snacks", foods: [] },
+];
+
+const MacroCalculator = () => {
+  // Persisted profile. Defaults are used until the IndexedDB hydration
+  // completes (a few ms after mount).
+  const {
+    profile: personalInfo,
+    setProfile: setPersonalInfo,
+    isHydrated: profileHydrated,
+  } = useProfile(DEFAULT_PROFILE);
+
+  // Currently displayed day. `null` means "follow today" — useful so the
+  // log live-updates across midnight when the user isn't pinned to a
+  // specific historical date.
+  const today = useToday();
+  const [explicitDate, setExplicitDate] = useState<string | null>(null);
+  const selectedDate = explicitDate ?? today;
+
+  const {
+    meals,
+    setMeals,
+    isHydrated: dailyLogHydrated,
+  } = useDailyLog(selectedDate, DEFAULT_MEALS);
+  const isHydrated = profileHydrated && dailyLogHydrated;
 
   // State for new food being added
   const [newFood, setNewFood] = useState<FoodItem>({
@@ -93,6 +123,11 @@ const MacroCalculator = () => {
   // Bump to force the search hook to re-query custom foods after a save.
   const [customFoodsRev, setCustomFoodsRev] = useState(0);
   const [customFoodOpen, setCustomFoodOpen] = useState(false);
+  // Meal templates: which dialog is open and for which meal. `null` =
+  // no dialog. The dialogs themselves read templates from IDB on open.
+  const [templateDialog, setTemplateDialog] = useState<
+    { kind: "save"; mealId: number } | { kind: "apply"; mealId: number } | null
+  >(null);
   const [view, setView] = useState<ViewKey>("calculator");
 
   const search = useFoodSearch(foodSearch, customFoodsRev);
@@ -216,6 +251,21 @@ const MacroCalculator = () => {
   const handleCustomFoodSaved = (food: Food) => {
     setCustomFoodsRev((r) => r + 1);
     handleFoodSelect(food);
+  };
+
+  // Append a template's foods to the target meal. Each food gets a fresh
+  // local id so subsequent edits don't collide with the template's saved
+  // foods or other meals' foods.
+  const handleApplyTemplate = (template: MealTemplate) => {
+    if (templateDialog?.kind !== "apply") return;
+    const targetId = templateDialog.mealId;
+    let nextId = Date.now();
+    const cloned = template.foods.map((f) => ({ ...f, id: nextId++ }));
+    setMeals(
+      meals.map((m) =>
+        m.id === targetId ? { ...m, foods: [...m.foods, ...cloned] } : m,
+      ),
+    );
   };
 
   // Handle portion size change
@@ -565,6 +615,9 @@ const MacroCalculator = () => {
           calculatedValues={calculatedValues}
           totalMacros={totalMacros}
           meals={meals}
+          selectedDate={selectedDate}
+          today={today}
+          onSelectDate={(d) => setExplicitDate(d === today ? null : d)}
           newFood={newFood}
           foodSearch={foodSearch}
           foodSuggestions={foodSuggestions}
@@ -597,6 +650,12 @@ const MacroCalculator = () => {
           generateMealPlan={generateMealPlan}
           onSaveOffToCustom={handleSaveOffToCustom}
           onOpenCustomFoodForm={() => setCustomFoodOpen(true)}
+          onSaveAsTemplate={(mealId) =>
+            setTemplateDialog({ kind: "save", mealId })
+          }
+          onAddFromTemplate={(mealId) =>
+            setTemplateDialog({ kind: "apply", mealId })
+          }
         />
       )}
 
@@ -604,6 +663,39 @@ const MacroCalculator = () => {
         open={customFoodOpen}
         onOpenChange={setCustomFoodOpen}
         onSaved={handleCustomFoodSaved}
+      />
+
+      <SaveTemplateDialog
+        open={templateDialog?.kind === "save"}
+        onOpenChange={(o) => {
+          if (!o) setTemplateDialog(null);
+        }}
+        foods={
+          templateDialog?.kind === "save"
+            ? (meals.find((m) => m.id === templateDialog.mealId)?.foods ?? [])
+            : []
+        }
+        defaultName={
+          templateDialog?.kind === "save"
+            ? (meals.find((m) => m.id === templateDialog.mealId)?.name ??
+              "Meal")
+            : "Meal"
+        }
+        onSaved={() => setTemplateDialog(null)}
+      />
+
+      <ApplyTemplateDialog
+        open={templateDialog?.kind === "apply"}
+        onOpenChange={(o) => {
+          if (!o) setTemplateDialog(null);
+        }}
+        targetMealName={
+          templateDialog?.kind === "apply"
+            ? (meals.find((m) => m.id === templateDialog.mealId)?.name ??
+              "Meal")
+            : "Meal"
+        }
+        onApply={handleApplyTemplate}
       />
     </AppShell>
   );

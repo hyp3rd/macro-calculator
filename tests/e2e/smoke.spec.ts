@@ -48,4 +48,114 @@ test.describe("macro-calculator happy path", () => {
         .first(),
     ).toBeVisible({ timeout: 15_000 });
   });
+
+  test("date navigator switches between today and yesterday", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Meal Plan" }).click();
+
+    // Start on today.
+    await expect(page.getByText("Today", { exact: true })).toBeVisible();
+
+    // Click "Previous day" to go to yesterday.
+    await page.getByRole("button", { name: "Previous day" }).click();
+    await expect(page.getByText("Yesterday", { exact: true })).toBeVisible();
+    // The "Today" snap-back button appears when off today.
+    await expect(page.getByRole("button", { name: "Today" })).toBeVisible();
+
+    // Snap back to today.
+    await page.getByRole("button", { name: "Today" }).click();
+    await expect(page.getByText("Today", { exact: true })).toBeVisible();
+  });
+
+  test("meal templates round-trip: save then apply on an empty meal", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Meal Plan" }).click();
+
+    // Auto-fill the day so Breakfast has foods to save.
+    await page
+      .getByRole("button", { name: /Auto-fill/i })
+      .first()
+      .click();
+    await expect(
+      page
+        .locator("body")
+        .filter({ hasText: /Chicken|Salmon|Oats|Rice|Eggs/ })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Open Breakfast's action menu and save as template.
+    await page.getByRole("button", { name: "Breakfast actions" }).click();
+    await page.getByRole("menuitem", { name: /Save as template/ }).click();
+    // Dialog: name + Save.
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name").fill("Test template");
+    await dialog.getByRole("button", { name: /Save template/ }).click();
+    await expect(dialog).toBeHidden();
+
+    // Wait for the dailyLog debounced write to flush before reload.
+    await page.waitForTimeout(800);
+
+    // Reload, navigate to a clean day (yesterday), then apply the template
+    // to that day's Breakfast.
+    await page.reload();
+    await page.getByRole("button", { name: "Meal Plan" }).click();
+    await page.getByRole("button", { name: "Previous day" }).click();
+
+    await page.getByRole("button", { name: "Breakfast actions" }).click();
+    await page.getByRole("menuitem", { name: /Add from template/ }).click();
+
+    // Click the saved template in the dialog list.
+    const applyDialog = page.getByRole("dialog");
+    await applyDialog.getByText("Test template").click();
+    await expect(applyDialog).toBeHidden();
+
+    // Foods should appear in yesterday's Breakfast. We assert against the
+    // structural marker (a row in the meal table) rather than a fixed food
+    // name, since the planner picks foods randomly each run.
+    const breakfastSection = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Breakfast" }) });
+    await expect(
+      breakfastSection.getByRole("row").nth(1), // 0 = header row
+    ).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("profile + meal log persist across a reload", async ({ page }) => {
+    // First visit: change weight to a distinctive value and Auto-fill meals.
+    await page.goto("/");
+    const weightInput = page.getByLabel("Weight (kg)");
+    await weightInput.fill("");
+    await weightInput.fill("83");
+
+    await page.getByRole("button", { name: "Meal Plan" }).click();
+    await page
+      .getByRole("button", { name: /Auto-fill/i })
+      .first()
+      .click();
+    await expect(
+      page
+        .locator("body")
+        .filter({ hasText: /Chicken|Salmon|Oats|Rice|Eggs/ })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Give the 500ms debounce time to flush.
+    await page.waitForTimeout(800);
+
+    // Reload: the weight should still be 83 and meals should still be filled.
+    await page.reload();
+    await expect(page.getByLabel("Weight (kg)")).toHaveValue("83");
+
+    await page.getByRole("button", { name: "Meal Plan" }).click();
+    await expect(
+      page
+        .locator("body")
+        .filter({ hasText: /Chicken|Salmon|Oats|Rice|Eggs/ })
+        .first(),
+    ).toBeVisible({ timeout: 5_000 });
+  });
 });
