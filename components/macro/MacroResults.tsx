@@ -1,8 +1,14 @@
-import React from 'react';
-import { CalculatedValues, TotalMacros } from '../../components/macro/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Progress } from '../ui/progress';
-import { Separator } from '../ui/separator';
+import React from "react";
+import { CalculatedValues, TotalMacros } from "../../components/macro/types";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../ui/card";
+import { Progress } from "../ui/progress";
+import { Separator } from "../ui/separator";
 
 interface MacroResultsProps {
   calculatedValues: CalculatedValues;
@@ -11,7 +17,7 @@ interface MacroResultsProps {
 
 const MacroResults: React.FC<MacroResultsProps> = ({
   calculatedValues,
-  totalMacros
+  totalMacros,
 }) => {
   // Calculate percentage of target macros reached
   const calculatePercentage = (current: number, target: number) => {
@@ -33,11 +39,15 @@ const MacroResults: React.FC<MacroResultsProps> = ({
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Total Daily Energy:</span>
-            <span className="font-medium">{calculatedValues.tdee} calories</span>
+            <span className="font-medium">
+              {calculatedValues.tdee} calories
+            </span>
           </div>
           <div className="flex justify-between text-base pt-1">
             <span className="font-medium">Target Calories:</span>
-            <span className="font-bold text-teal-600">{calculatedValues.targetCalories} calories</span>
+            <span className="font-bold text-teal-600">
+              {calculatedValues.targetCalories} calories
+            </span>
           </div>
         </div>
 
@@ -46,25 +56,39 @@ const MacroResults: React.FC<MacroResultsProps> = ({
         <div className="grid grid-cols-3 gap-3">
           <div className="macro-card border border-teal-200 bg-teal-50 p-4 rounded-xl text-center">
             <p className="text-xs text-gray-500 mb-1">Protein</p>
-            <p className="font-bold text-teal-600 text-xl">{calculatedValues.protein}g</p>
-            <p className="text-xs text-gray-400">{calculatedValues.protein * 4} cal</p>
+            <p className="font-bold text-teal-600 text-xl">
+              {calculatedValues.protein}g
+            </p>
+            <p className="text-xs text-gray-400">
+              {calculatedValues.protein * 4} cal
+            </p>
           </div>
           <div className="macro-card border border-violet-200 bg-violet-50 p-4 rounded-xl text-center">
             <p className="text-xs text-gray-500 mb-1">Carbs</p>
-            <p className="font-bold text-violet-600 text-xl">{calculatedValues.carbs}g</p>
-            <p className="text-xs text-gray-400">{calculatedValues.carbs * 4} cal</p>
+            <p className="font-bold text-violet-600 text-xl">
+              {calculatedValues.carbs}g
+            </p>
+            <p className="text-xs text-gray-400">
+              {calculatedValues.carbs * 4} cal
+            </p>
           </div>
           <div className="macro-card border border-rose-200 bg-rose-50 p-4 rounded-xl text-center">
             <p className="text-xs text-gray-500 mb-1">Fat</p>
-            <p className="font-bold text-rose-600 text-xl">{calculatedValues.fat}g</p>
-            <p className="text-xs text-gray-400">{calculatedValues.fat * 9} cal</p>
+            <p className="font-bold text-rose-600 text-xl">
+              {calculatedValues.fat}g
+            </p>
+            <p className="text-xs text-gray-400">
+              {calculatedValues.fat * 9} cal
+            </p>
           </div>
         </div>
 
         <Separator />
 
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-gray-700">Current Progress</h3>
+          <h3 className="text-sm font-medium text-gray-700">
+            Current Progress
+          </h3>
           <div className="space-y-3">
             <div>
               <div className="flex justify-between text-sm mb-1">
@@ -74,7 +98,10 @@ const MacroResults: React.FC<MacroResultsProps> = ({
                 </span>
               </div>
               <Progress
-                value={calculatePercentage(totalMacros.protein, calculatedValues.protein)}
+                value={calculatePercentage(
+                  totalMacros.protein,
+                  calculatedValues.protein,
+                )}
                 className="h-2 bg-teal-100"
                 indicatorClassName="bg-teal-500"
               />
@@ -87,7 +114,10 @@ const MacroResults: React.FC<MacroResultsProps> = ({
                 </span>
               </div>
               <Progress
-                value={calculatePercentage(totalMacros.carbs, calculatedValues.carbs)}
+                value={calculatePercentage(
+                  totalMacros.carbs,
+                  calculatedValues.carbs,
+                )}
                 className="h-2 bg-violet-100"
                 indicatorClassName="bg-violet-500"
               />
@@ -100,7 +130,10 @@ const MacroResults: React.FC<MacroResultsProps> = ({
                 </span>
               </div>
               <Progress
-                value={calculatePercentage(totalMacros.fat, calculatedValues.fat)}
+                value={calculatePercentage(
+                  totalMacros.fat,
+                  calculatedValues.fat,
+                )}
                 className="h-2 bg-rose-100"
                 indicatorClassName="bg-rose-500"
               />
@@ -113,7 +146,10 @@ const MacroResults: React.FC<MacroResultsProps> = ({
                 </span>
               </div>
               <Progress
-                value={calculatePercentage(totalMacros.calories, calculatedValues.targetCalories)}
+                value={calculatePercentage(
+                  totalMacros.calories,
+                  calculatedValues.targetCalories,
+                )}
                 className="h-2 bg-gray-100"
                 indicatorClassName="bg-gray-500"
               />

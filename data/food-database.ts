@@ -377,4 +377,3 @@ export const goalAdjustments = {
   maintain: 1.0,
   gain: 1.15, // 15% surplus
 };
-

@@ -1,8 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap");
 @import "tailwindcss";
 
 @config "../tailwind.config.mjs";
-
 
 @tailwind base;
 @tailwind components;
@@ -79,7 +78,12 @@
   body {
     @apply bg-background text-foreground font-sans;
   }
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-display font-semibold;
   }
 }
@@ -91,7 +95,7 @@
 
 .macro-card::before {
   @apply absolute inset-0 -translate-x-full;
-  content: '';
+  content: "";
   background: linear-gradient(
     to right,
     transparent 0%,
@@ -102,19 +106,19 @@
 }
 
 .macro-protein {
-  @apply text-teal-600 border-teal-200 bg-teal-50;
+  @apply border-teal-200 bg-teal-50 text-teal-600;
 }
 
 .macro-carbs {
-  @apply text-violet-600 border-violet-200 bg-violet-50;
+  @apply border-violet-200 bg-violet-50 text-violet-600;
 }
 
 .macro-fat {
-  @apply text-rose-600 border-rose-200 bg-rose-50;
+  @apply border-rose-200 bg-rose-50 text-rose-600;
 }
 
 .macro-calories {
-  @apply text-gray-700 border-gray-200 bg-gray-50;
+  @apply border-gray-200 bg-gray-50 text-gray-700;
 }
 
 .progress-protein {
