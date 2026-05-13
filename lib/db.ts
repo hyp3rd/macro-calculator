@@ -7,12 +7,13 @@ import type {
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 
 const DB_NAME = "macro-calculator";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_CUSTOM_FOODS = "customFoods";
 const STORE_PROFILE = "profile";
 const STORE_DAILY_LOGS = "dailyLogs";
 const STORE_MEAL_TEMPLATES = "mealTemplates";
+const STORE_WEIGHT_HISTORY = "weightHistory";
 
 /** Single record key under the `profile` store. We only support one
  * profile in phase 2; this constant makes that explicit. */
@@ -40,6 +41,10 @@ export type MealTemplate = {
   updatedAt: number;
 };
 
+/** A single weigh-in. Keyed by `YYYY-MM-DD` local date — same-day writes
+ * overwrite, so the latest weigh-in for a day wins. */
+export type WeightEntry = { date: string; kg: number; recordedAt: number };
+
 interface MacroDB extends DBSchema {
   [STORE_CUSTOM_FOODS]: {
     key: number;
@@ -49,6 +54,7 @@ interface MacroDB extends DBSchema {
   [STORE_PROFILE]: { key: string; value: PersonalInfo & { _key: string } };
   [STORE_DAILY_LOGS]: { key: string; value: DailyLog };
   [STORE_MEAL_TEMPLATES]: { key: number; value: MealTemplate };
+  [STORE_WEIGHT_HISTORY]: { key: string; value: WeightEntry };
 }
 
 let dbPromise: Promise<IDBPDatabase<MacroDB>> | null = null;
@@ -78,6 +84,10 @@ function getDB(): Promise<IDBPDatabase<MacroDB>> {
           keyPath: "id",
           autoIncrement: true,
         });
+      }
+      // v3 → v4: weightHistory store.
+      if (oldVersion < 4) {
+        db.createObjectStore(STORE_WEIGHT_HISTORY, { keyPath: "date" });
       }
     },
   });
@@ -226,4 +236,33 @@ export async function listMealTemplates(): Promise<MealTemplate[]> {
 export async function deleteMealTemplate(id: number): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_MEAL_TEMPLATES, id);
+}
+
+// ─── Weight history ────────────────────────────────────────────────────────
+
+/** Record a weigh-in. Same-date saves overwrite, so multiple weigh-ins on
+ * the same day collapse to the most recent value. */
+export async function saveWeightEntry(date: string, kg: number): Promise<void> {
+  const db = await getDB();
+  await db.put(STORE_WEIGHT_HISTORY, { date, kg, recordedAt: Date.now() });
+}
+
+export async function getWeightEntry(
+  date: string,
+): Promise<WeightEntry | null> {
+  const db = await getDB();
+  const row = await db.get(STORE_WEIGHT_HISTORY, date);
+  return row ?? null;
+}
+
+/** All weight entries, oldest first — the natural order for charts. */
+export async function listWeightEntries(): Promise<WeightEntry[]> {
+  const db = await getDB();
+  const rows = await db.getAll(STORE_WEIGHT_HISTORY);
+  return rows.sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+export async function deleteWeightEntry(date: string): Promise<void> {
+  const db = await getDB();
+  await db.delete(STORE_WEIGHT_HISTORY, date);
 }

@@ -266,3 +266,53 @@ describe("meal templates", () => {
     ).resolves.toBeTypeOf("number");
   });
 });
+
+describe("weight history", () => {
+  beforeEach(async () => {
+    await freshDb();
+  });
+
+  it("round-trips an entry through save + get", async () => {
+    const { saveWeightEntry, getWeightEntry } = await freshDb();
+    await saveWeightEntry("2026-05-13", 70.5);
+    const row = await getWeightEntry("2026-05-13");
+    expect(row?.date).toBe("2026-05-13");
+    expect(row?.kg).toBe(70.5);
+    expect(row?.recordedAt).toBeGreaterThan(0);
+  });
+
+  it("returns null for a date with no entry", async () => {
+    const { getWeightEntry } = await freshDb();
+    expect(await getWeightEntry("2026-01-01")).toBeNull();
+  });
+
+  it("overwrites on same-day save (latest wins)", async () => {
+    const { saveWeightEntry, getWeightEntry, listWeightEntries } =
+      await freshDb();
+    await saveWeightEntry("2026-05-13", 70);
+    await saveWeightEntry("2026-05-13", 71);
+    expect((await getWeightEntry("2026-05-13"))?.kg).toBe(71);
+    expect(await listWeightEntries()).toHaveLength(1);
+  });
+
+  it("listWeightEntries orders chronologically (oldest first)", async () => {
+    const { saveWeightEntry, listWeightEntries } = await freshDb();
+    await saveWeightEntry("2026-05-15", 72);
+    await saveWeightEntry("2026-05-13", 70);
+    await saveWeightEntry("2026-05-14", 71);
+    const rows = await listWeightEntries();
+    expect(rows.map((r) => r.date)).toEqual([
+      "2026-05-13",
+      "2026-05-14",
+      "2026-05-15",
+    ]);
+  });
+
+  it("deleteWeightEntry removes the record", async () => {
+    const { saveWeightEntry, deleteWeightEntry, listWeightEntries } =
+      await freshDb();
+    await saveWeightEntry("2026-05-13", 70);
+    await deleteWeightEntry("2026-05-13");
+    expect(await listWeightEntries()).toHaveLength(0);
+  });
+});

@@ -124,6 +124,50 @@ test.describe("macro-calculator happy path", () => {
     ).toBeVisible({ timeout: 5_000 });
   });
 
+  test("changing weight auto-logs to Progress view", async ({ page }) => {
+    await page.goto("/");
+    // Set weight to a distinct value the chart can show.
+    const weightInput = page.getByLabel("Weight (kg)");
+    await weightInput.fill("");
+    await weightInput.fill("78");
+    // Wait for the 500ms debounce to flush profile + weightHistory.
+    await page.waitForTimeout(900);
+
+    await page.getByRole("button", { name: "Progress" }).click();
+
+    // Heading visible + the weight value rendered in the headline ticker.
+    await expect(page.getByRole("heading", { name: "Weight" })).toBeVisible();
+    await expect(page.getByText(/78\.0\s*kg/)).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("manual weigh-in form records a measurement", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Progress" }).click();
+
+    // Empty state → form visible.
+    await expect(
+      page.getByRole("heading", { name: "Log weigh-in" }),
+    ).toBeVisible();
+
+    await page.getByLabel("Weight (kg)", { exact: false }).fill("75.5");
+    await page.getByRole("button", { name: /^Save$/ }).click();
+
+    // The weight headline ticker should reflect the new entry (the
+    // weight section also surfaces a label, so pick the first match).
+    await expect(page.getByText(/75\.5\s*kg/).first()).toBeVisible({
+      timeout: 5_000,
+    });
+  });
+
+  test("empty day prompt appears when no meals are logged", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Meal Plan" }).click();
+    // Default state is empty → prompt should be visible.
+    await expect(page.getByText(/No meals logged for this day/)).toBeVisible();
+  });
+
   test("profile + meal log persist across a reload", async ({ page }) => {
     // First visit: change weight to a distinctive value and Auto-fill meals.
     await page.goto("/");

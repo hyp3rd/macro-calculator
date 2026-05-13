@@ -47,8 +47,43 @@ backend, no accounts — your custom foods live in your browser's IndexedDB.
 ```bash
 nvm use            # picks up Node 25 from .nvmrc
 npm install
+cp .env.local.example .env.local   # optional — only needed for auth/sync
 npm run dev        # http://localhost:3000
 ```
+
+Without `.env.local` the app runs in **guest mode**: everything is stored
+in IndexedDB on this device and there's no sign-in. To enable multi-device
+sync, follow Supabase setup below.
+
+### Supabase setup (auth + sync, optional)
+
+The app uses Supabase as the cloud backend for auth (magic link) and
+multi-device sync. Locally it runs fine without it — sign-in is disabled
+and the app stays on IndexedDB.
+
+1. Create a project at <https://supabase.com> (free tier is enough).
+2. In the Supabase dashboard, go to **Project Settings → API** and copy
+   the **Project URL** and the **anon public** key.
+3. Paste them into `.env.local`:
+
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc…
+   ```
+
+4. Run the schema migration in the dashboard's **SQL Editor**: open
+   [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql),
+   paste it, run it. This creates five tables (`profiles`, `daily_logs`,
+   `weight_history`, `custom_foods`, `meal_templates`) with row-level
+   security so users only see their own rows.
+5. In **Authentication → URL configuration**, add `http://localhost:3000`
+   to the **Site URL** and add `http://localhost:3000/auth/callback` to
+   **Redirect URLs**. Repeat for your production URL when you deploy.
+6. Restart `npm run dev`. The sidebar should now show "Sign in" instead
+   of "Guest".
+
+Note: free-tier Supabase projects pause after a week of inactivity and
+auto-resume on the next request (one-time delay of a few seconds).
 
 ## Scripts
 
