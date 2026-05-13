@@ -1,100 +1,111 @@
+"use client";
+
+import { NumberTicker } from "@/components/shell/NumberTicker";
 import React from "react";
 import { CalculatedValues, TotalMacros } from "../../components/macro/types";
-import { Card, CardContent } from "../ui/card";
-import { Progress } from "../ui/progress";
 
 interface DailyTotalsProps {
   calculatedValues: CalculatedValues;
   totalMacros: TotalMacros;
 }
 
+type Row = {
+  key: keyof TotalMacros;
+  label: string;
+  target: number;
+  unit: string;
+  cssVar?: string;
+};
+
 const DailyTotals: React.FC<DailyTotalsProps> = ({
   calculatedValues,
   totalMacros,
 }) => {
-  // Calculate percentage of target macros reached
-  const calculatePercentage = (current: number, target: number) => {
-    if (target === 0) return 0;
-    return Math.min(Math.round((current / target) * 100), 100);
-  };
+  const pct = (current: number, target: number) =>
+    target === 0 ? 0 : Math.min(Math.round((current / target) * 100), 100);
+
+  const rows: Row[] = [
+    {
+      key: "protein",
+      label: "Protein",
+      target: calculatedValues.protein,
+      unit: "g",
+      cssVar: "--macro-protein",
+    },
+    {
+      key: "carbs",
+      label: "Carbs",
+      target: calculatedValues.carbs,
+      unit: "g",
+      cssVar: "--macro-carbs",
+    },
+    {
+      key: "fat",
+      label: "Fat",
+      target: calculatedValues.fat,
+      unit: "g",
+      cssVar: "--macro-fat",
+    },
+    {
+      key: "calories",
+      label: "kcal",
+      target: calculatedValues.targetCalories,
+      unit: "",
+    },
+  ];
 
   return (
-    <div className="w-full">
-      <h3 className="text-xl font-semibold text-gray-800 mb-4">Daily Totals</h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="macro-card border border-teal-200 bg-teal-50 shadow-sm">
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-gray-500 mb-1">Protein</p>
-            <p className="text-2xl font-bold text-teal-600">
-              {totalMacros.protein}g
-            </p>
-            <p className="text-xs text-gray-400 mb-2">
-              Target: {calculatedValues.protein}g
-            </p>
-            <Progress
-              value={calculatePercentage(
-                totalMacros.protein,
-                calculatedValues.protein,
-              )}
-              className="h-1.5 bg-teal-100"
-              indicatorClassName="bg-teal-500"
-            />
-          </CardContent>
-        </Card>
-        <Card className="macro-card border border-violet-200 bg-violet-50 shadow-sm">
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-gray-500 mb-1">Carbs</p>
-            <p className="text-2xl font-bold text-violet-600">
-              {totalMacros.carbs}g
-            </p>
-            <p className="text-xs text-gray-400 mb-2">
-              Target: {calculatedValues.carbs}g
-            </p>
-            <Progress
-              value={calculatePercentage(
-                totalMacros.carbs,
-                calculatedValues.carbs,
-              )}
-              className="h-1.5 bg-violet-100"
-              indicatorClassName="bg-violet-500"
-            />
-          </CardContent>
-        </Card>
-        <Card className="macro-card border border-rose-200 bg-rose-50 shadow-sm">
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-gray-500 mb-1">Fat</p>
-            <p className="text-2xl font-bold text-rose-600">
-              {totalMacros.fat}g
-            </p>
-            <p className="text-xs text-gray-400 mb-2">
-              Target: {calculatedValues.fat}g
-            </p>
-            <Progress
-              value={calculatePercentage(totalMacros.fat, calculatedValues.fat)}
-              className="h-1.5 bg-rose-100"
-              indicatorClassName="bg-rose-500"
-            />
-          </CardContent>
-        </Card>
-        <Card className="macro-card border border-gray-200 bg-gray-50 shadow-sm">
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-gray-500 mb-1">Calories</p>
-            <p className="text-2xl font-bold text-gray-700">
-              {totalMacros.calories}
-            </p>
-            <p className="text-xs text-gray-400 mb-2">
-              Target: {calculatedValues.targetCalories}
-            </p>
-            <Progress
-              value={calculatePercentage(
-                totalMacros.calories,
-                calculatedValues.targetCalories,
-              )}
-              className="h-1.5 bg-gray-100"
-              indicatorClassName="bg-gray-500"
-            />
-          </CardContent>
-        </Card>
+    <div>
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Daily Totals
+      </p>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {rows.map((row) => {
+          const current = totalMacros[row.key];
+          const p = pct(current, row.target);
+          return (
+            <div
+              key={row.key}
+              className="space-y-1.5"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  {row.cssVar && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ background: `hsl(var(${row.cssVar}))` }}
+                      aria-hidden
+                    />
+                  )}
+                  <span className="text-xs font-medium text-foreground">
+                    {row.label}
+                  </span>
+                </div>
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  / {row.target}
+                  {row.unit}
+                </span>
+              </div>
+              <p className="font-mono text-xl font-semibold tabular-nums text-foreground">
+                <NumberTicker
+                  value={current}
+                  suffix={row.unit}
+                />
+              </p>
+              <div className="h-0.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500 ease-out"
+                  style={{
+                    width: `${p}%`,
+                    background: row.cssVar
+                      ? `hsl(var(${row.cssVar}))`
+                      : "hsl(var(--foreground))",
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

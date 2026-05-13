@@ -1,10 +1,11 @@
+"use client";
+
 import React from "react";
 import {
   Food,
   FoodItem as FoodItemType,
   Meal as MealType,
 } from "../../components/macro/types";
-import { Badge } from "../ui/badge";
 import FoodItem from "./FoodItem";
 
 interface MealItemProps {
@@ -51,63 +52,44 @@ const MealItem: React.FC<MealItemProps> = ({
   removeFood,
 }) => {
   const totalProtein = Math.round(
-    meal.foods.reduce((sum, food) => sum + food.protein, 0),
+    meal.foods.reduce((s, f) => s + f.protein, 0),
   );
-  const totalCarbs = Math.round(
-    meal.foods.reduce((sum, food) => sum + food.carbs, 0),
-  );
-  const totalFat = Math.round(
-    meal.foods.reduce((sum, food) => sum + food.fat, 0),
-  );
+  const totalCarbs = Math.round(meal.foods.reduce((s, f) => s + f.carbs, 0));
+  const totalFat = Math.round(meal.foods.reduce((s, f) => s + f.fat, 0));
   const totalCalories = Math.round(
-    meal.foods.reduce((sum, food) => sum + food.calories, 0),
+    meal.foods.reduce((s, f) => s + f.calories, 0),
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center">
-        <h3 className="text-xl font-semibold text-gray-800">{meal.name}</h3>
-        <Badge
-          variant="outline"
-          className="ml-2 bg-gray-50"
-        >
-          {totalCalories} cal
-        </Badge>
+    <div className="px-5 py-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h4 className="text-sm font-semibold tracking-tight text-foreground">
+          {meal.name}
+        </h4>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {totalCalories} kcal · P{totalProtein} · C{totalCarbs} · F{totalFat}
+        </span>
       </div>
 
       {meal.foods.length === 0 ? (
-        <div className="p-6 bg-gray-50 rounded-xl text-center">
-          <p className="text-gray-500 italic">No foods added yet</p>
-        </div>
+        <p className="rounded-md border border-dashed border-border/60 px-4 py-3 text-center text-xs text-muted-foreground">
+          No foods added yet
+        </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200">
-          <table className="w-full">
+        <div className="overflow-x-auto rounded-md border border-border/60">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Food
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Portion (g)
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Protein
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Carbs
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Fat
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Calories
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+              <tr className="border-b border-border/60 bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <th className="px-3 py-2 text-left">Food</th>
+                <th className="px-3 py-2 text-center">Portion</th>
+                <th className="px-3 py-2 text-center">P</th>
+                <th className="px-3 py-2 text-center">C</th>
+                <th className="px-3 py-2 text-center">F</th>
+                <th className="px-3 py-2 text-center">kcal</th>
+                <th className="px-3 py-2 text-right" />
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border/60">
               {meal.foods.map((food) => (
                 <FoodItem
                   key={food.id}
@@ -127,27 +109,6 @@ const MealItem: React.FC<MealItemProps> = ({
                   removeFood={removeFood}
                 />
               ))}
-              {meal.foods.length > 0 && (
-                <tr className="bg-gray-50">
-                  <td className="px-4 py-3 font-medium">Total</td>
-                  <td className="px-4 py-3 text-center">
-                    {/* Intentionally empty for Portion column */}
-                  </td>
-                  <td className="px-4 py-3 text-center font-medium text-teal-600">
-                    {totalProtein}g
-                  </td>
-                  <td className="px-4 py-3 text-center font-medium text-violet-600">
-                    {totalCarbs}g
-                  </td>
-                  <td className="px-4 py-3 text-center font-medium text-rose-600">
-                    {totalFat}g
-                  </td>
-                  <td className="px-4 py-3 text-center font-medium text-gray-700">
-                    {totalCalories}
-                  </td>
-                  <td></td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

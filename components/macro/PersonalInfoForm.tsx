@@ -1,12 +1,7 @@
+"use client";
+
 import React from "react";
 import { PersonalInfo } from "../../components/macro/types";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
@@ -19,35 +14,36 @@ import {
 
 interface PersonalInfoFormProps {
   personalInfo: PersonalInfo;
-  onPersonalInfoChange: (name: string, value: string | number) => void;
+  onPersonalInfoChange: (name: string, value: string | number | null) => void;
 }
 
 const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
   personalInfo,
   onPersonalInfoChange,
 }) => {
+  const numberHandler =
+    (field: keyof PersonalInfo, fallback: number, parser = parseFloat) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = parser(e.target.value);
+      onPersonalInfoChange(field, Number.isNaN(v) ? fallback : v);
+    };
+
   return (
-    <Card className="lg:col-span-2 border-none shadow-lg">
-      <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
-        <CardTitle className="text-2xl">Personal Information</CardTitle>
-        <CardDescription>
-          Enter your details to calculate your daily macro targets
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="pt-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <Label
-              htmlFor="gender"
-              className="text-gray-700"
-            >
-              Gender
-            </Label>
+    <div className="space-y-6">
+      <Section
+        title="Body"
+        description="Used to estimate BMR and TDEE."
+      >
+        <Row>
+          <Field
+            id="gender"
+            label="Gender"
+          >
             <Select
               value={personalInfo.gender}
-              onValueChange={(value) => onPersonalInfoChange("gender", value)}
+              onValueChange={(v) => onPersonalInfoChange("gender", v)}
             >
-              <SelectTrigger className="bg-gray-50 border-gray-200">
+              <SelectTrigger id="gender">
                 <SelectValue placeholder="Select gender" />
               </SelectTrigger>
               <SelectContent>
@@ -55,151 +51,104 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
                 <SelectItem value="female">Female</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label
-              htmlFor="age"
-              className="text-gray-700"
-            >
-              Age
-            </Label>
+          <Field
+            id="age"
+            label="Age"
+          >
             <Input
               id="age"
               type="number"
-              value={personalInfo.age}
-              onChange={(e) => {
-                const v = Number.parseInt(e.target.value, 10);
-                onPersonalInfoChange(
-                  "age",
-                  Number.isNaN(v) ? personalInfo.age : v,
-                );
-              }}
               min="18"
               max="100"
-              className="bg-gray-50 border-gray-200"
+              value={personalInfo.age}
+              onChange={numberHandler("age", personalInfo.age, (s) =>
+                parseInt(s, 10),
+              )}
             />
-          </div>
+          </Field>
+        </Row>
 
-          <div className="space-y-2">
-            <Label
-              htmlFor="weight"
-              className="text-gray-700"
-            >
-              Weight (kg)
-            </Label>
+        <Row>
+          <Field
+            id="weight"
+            label="Weight (kg)"
+          >
             <Input
               id="weight"
               type="number"
-              value={personalInfo.weight}
-              onChange={(e) => {
-                const v = Number.parseFloat(e.target.value);
-                onPersonalInfoChange(
-                  "weight",
-                  Number.isNaN(v) ? personalInfo.weight : v,
-                );
-              }}
               min="40"
               max="200"
               step="0.1"
-              className="bg-gray-50 border-gray-200"
+              value={personalInfo.weight}
+              onChange={numberHandler("weight", personalInfo.weight)}
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label
-              htmlFor="height"
-              className="text-gray-700"
-            >
-              Height (cm)
-            </Label>
+          <Field
+            id="height"
+            label="Height (cm)"
+          >
             <Input
               id="height"
               type="number"
-              value={personalInfo.height}
-              onChange={(e) => {
-                const v = Number.parseInt(e.target.value, 10);
-                onPersonalInfoChange(
-                  "height",
-                  Number.isNaN(v) ? personalInfo.height : v,
-                );
-              }}
               min="130"
               max="230"
-              className="bg-gray-50 border-gray-200"
+              value={personalInfo.height}
+              onChange={numberHandler("height", personalInfo.height, (s) =>
+                parseInt(s, 10),
+              )}
             />
-          </div>
+          </Field>
+        </Row>
+      </Section>
 
-          <div className="space-y-2">
-            <Label
-              htmlFor="activityLevel"
-              className="text-gray-700"
-            >
-              Activity Level
-            </Label>
+      <Section
+        title="Activity & Diet"
+        description="The activity multiplier is the largest source of TDEE error — be honest, or override below."
+      >
+        <Row>
+          <Field
+            id="activityLevel"
+            label="Activity Level"
+          >
             <Select
               value={personalInfo.activityLevel}
-              onValueChange={(value) =>
-                onPersonalInfoChange("activityLevel", value)
-              }
+              onValueChange={(v) => onPersonalInfoChange("activityLevel", v)}
             >
-              <SelectTrigger className="bg-gray-50 border-gray-200">
+              <SelectTrigger id="activityLevel">
                 <SelectValue placeholder="Select activity level" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="sedentary">
-                  Sedentary (little or no exercise)
+                  Sedentary (desk job, minimal movement)
                 </SelectItem>
                 <SelectItem value="light">
-                  Light (exercise 1-3 days/week)
+                  Light (desk job + light exercise 1-3 days/wk)
                 </SelectItem>
                 <SelectItem value="moderate">
-                  Moderate (exercise 3-5 days/week)
+                  Moderate (desk job + serious exercise 3-5 days/wk)
                 </SelectItem>
                 <SelectItem value="active">
-                  Active (exercise 6-7 days/week)
+                  Active (physical job OR very hard training 6+ days/wk)
                 </SelectItem>
                 <SelectItem value="veryActive">
-                  Very Active (physically demanding job or 2x training)
+                  Very Active (physical job AND intense daily training)
                 </SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label
-              htmlFor="goal"
-              className="text-gray-700"
-            >
-              Goal
-            </Label>
-            <Select
-              value={personalInfo.goal}
-              onValueChange={(value) => onPersonalInfoChange("goal", value)}
-            >
-              <SelectTrigger className="bg-gray-50 border-gray-200">
-                <SelectValue placeholder="Select goal" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lose">Lose Weight</SelectItem>
-                <SelectItem value="maintain">Maintain Weight</SelectItem>
-                <SelectItem value="gain">Gain Weight/Muscle</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label
-              htmlFor="dietType"
-              className="text-gray-700"
-            >
-              Diet Type
-            </Label>
+          <Field
+            id="dietType"
+            label="Diet Type"
+          >
             <Select
               value={personalInfo.dietType}
-              onValueChange={(value) => onPersonalInfoChange("dietType", value)}
+              onValueChange={(v) => onPersonalInfoChange("dietType", v)}
             >
-              <SelectTrigger className="bg-gray-50 border-gray-200">
+              <SelectTrigger id="dietType">
                 <SelectValue placeholder="Select diet type" />
               </SelectTrigger>
               <SelectContent>
@@ -208,11 +157,159 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
                 <SelectItem value="lowFat">Low Fat</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+          </Field>
+        </Row>
+      </Section>
+
+      <Section
+        title="Goal"
+        description="Direction and rate of weight change."
+      >
+        <Row>
+          <Field
+            id="goal"
+            label="Goal"
+          >
+            <Select
+              value={personalInfo.goal}
+              onValueChange={(v) => onPersonalInfoChange("goal", v)}
+            >
+              <SelectTrigger id="goal">
+                <SelectValue placeholder="Select goal" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="lose">Lose Weight</SelectItem>
+                <SelectItem value="maintain">Maintain Weight</SelectItem>
+                <SelectItem value="gain">Gain Weight / Muscle</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {personalInfo.goal !== "maintain" && (
+            <Field
+              id="weeklyRateKg"
+              label="Rate (kg/week)"
+              hint={`Capped at 1% of bodyweight per week (${(
+                personalInfo.weight * 0.01
+              ).toFixed(2)} kg).`}
+            >
+              <Input
+                id="weeklyRateKg"
+                type="number"
+                min="0"
+                max={(personalInfo.weight * 0.01).toFixed(2)}
+                step="0.05"
+                value={personalInfo.weeklyRateKg}
+                onChange={numberHandler(
+                  "weeklyRateKg",
+                  personalInfo.weeklyRateKg,
+                )}
+              />
+            </Field>
+          )}
+        </Row>
+      </Section>
+
+      <Section
+        title="Advanced"
+        description="Optional. Override the TDEE estimate when you've calibrated against real-world weight change."
+      >
+        <Field
+          id="manualTdee"
+          label="TDEE override"
+          hint={
+            <>
+              Leave blank to use BMR × activity. To calibrate after 2-3 weeks of
+              tracking:{" "}
+              <span className="font-mono">
+                real TDEE ≈ current Target Calories + (observed weekly loss in
+                kg × 1100)
+              </span>
+              .
+            </>
+          }
+        >
+          <Input
+            id="manualTdee"
+            type="number"
+            min="800"
+            max="6000"
+            step="10"
+            placeholder="e.g. 2400"
+            value={personalInfo.manualTdee ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value.trim();
+              if (raw === "") {
+                onPersonalInfoChange("manualTdee", null);
+                return;
+              }
+              const v = Number.parseFloat(raw);
+              if (!Number.isNaN(v)) onPersonalInfoChange("manualTdee", v);
+            }}
+          />
+        </Field>
+      </Section>
+    </div>
   );
 };
+
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+      <header className="border-b border-border/60 px-5 py-3">
+        <h3 className="text-sm font-semibold tracking-tight text-foreground">
+          {title}
+        </h3>
+        {description && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        )}
+      </header>
+      <div className="space-y-4 px-5 py-4">{children}</div>
+    </section>
+  );
+}
+
+function Row({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
+  );
+}
+
+function Field({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label
+        htmlFor={id}
+        className="text-xs font-medium text-muted-foreground"
+      >
+        {label}
+      </Label>
+      {children}
+      {hint && (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default PersonalInfoForm;

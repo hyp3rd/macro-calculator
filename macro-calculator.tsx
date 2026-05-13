@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Calculator, Utensils } from "lucide-react";
+import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
 import MealPlanner from "./components/macro/MealPlanner";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
@@ -12,22 +12,27 @@ import {
   Meal,
   PersonalInfo,
   TotalMacros,
-  activityMultipliers,
-  goalAdjustments,
 } from "./components/macro/types";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { AppShell } from "./components/shell/AppShell";
+import type { ViewKey } from "./components/shell/Sidebar";
 import { foodDatabase } from "./data/food-database";
+import { useFoodSearch } from "./hooks/use-food-search";
+import { addCustomFood, customToFood, listCustomFoods } from "./lib/db";
+import { computeMacros } from "./lib/macros";
+import { planDay, summarisePlan } from "./lib/meal-planner";
 
 const MacroCalculator = () => {
   // State for user inputs
   const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
     gender: "male",
     age: 30,
-    weight: 70, // kg
-    height: 175, // cm
+    weight: 70,
+    height: 175,
     activityLevel: "moderate",
     goal: "maintain",
-    dietType: "balanced", // diet type option (balanced, lowCarb, lowFat)
+    dietType: "balanced",
+    weeklyRateKg: 0.5,
+    manualTdee: null,
   });
 
   // State for meal planning
@@ -81,8 +86,17 @@ const MacroCalculator = () => {
 
   // State for food search and suggestions
   const [foodSearch, setFoodSearch] = useState("");
-  const [foodSuggestions, setFoodSuggestions] = useState<Food[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Per-100g reference for the last-picked food. Drives portion recalculation
+  // across all three sources (builtin / custom / OFF) without re-querying.
+  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
+  // Bump to force the search hook to re-query custom foods after a save.
+  const [customFoodsRev, setCustomFoodsRev] = useState(0);
+  const [customFoodOpen, setCustomFoodOpen] = useState(false);
+  const [view, setView] = useState<ViewKey>("calculator");
+
+  const search = useFoodSearch(foodSearch, customFoodsRev);
+  const foodSuggestions = search.results;
 
   // State for portion size
   const [portionSize, setPortionSize] = useState(100); // Default 100g
@@ -125,56 +139,10 @@ const MacroCalculator = () => {
     };
   }, []);
 
-  // Derived: BMR, TDEE, and target macros from personal info (Mifflin-St Jeor).
-  const calculatedValues = useMemo<CalculatedValues>(() => {
-    const bmr =
-      personalInfo.gender === "male"
-        ? 10 * personalInfo.weight +
-          6.25 * personalInfo.height -
-          5 * personalInfo.age +
-          5
-        : 10 * personalInfo.weight +
-          6.25 * personalInfo.height -
-          5 * personalInfo.age -
-          161;
-
-    const tdee = bmr * activityMultipliers[personalInfo.activityLevel];
-    const targetCalories = tdee * goalAdjustments[personalInfo.goal];
-
-    let proteinRatio, fatRatio, carbRatio;
-    if (personalInfo.goal === "lose") {
-      proteinRatio = 0.4;
-      fatRatio = 0.35;
-      carbRatio = 0.25;
-    } else if (personalInfo.goal === "gain") {
-      proteinRatio = 0.3;
-      fatRatio = 0.25;
-      carbRatio = 0.45;
-    } else {
-      proteinRatio = 0.3;
-      fatRatio = 0.3;
-      carbRatio = 0.4;
-    }
-
-    if (personalInfo.dietType === "lowCarb") {
-      carbRatio = Math.max(0.15, carbRatio - 0.2);
-      proteinRatio = Math.min(0.4, proteinRatio + 0.05);
-      fatRatio = 1 - proteinRatio - carbRatio;
-    } else if (personalInfo.dietType === "lowFat") {
-      fatRatio = Math.max(0.15, fatRatio - 0.15);
-      proteinRatio = Math.min(0.4, proteinRatio + 0.05);
-      carbRatio = 1 - proteinRatio - fatRatio;
-    }
-
-    return {
-      bmr: Math.round(bmr),
-      tdee: Math.round(tdee),
-      targetCalories: Math.round(targetCalories),
-      protein: Math.round((targetCalories * proteinRatio) / 4),
-      carbs: Math.round((targetCalories * carbRatio) / 4),
-      fat: Math.round((targetCalories * fatRatio) / 9),
-    };
-  }, [personalInfo]);
+  const calculatedValues = useMemo<CalculatedValues>(
+    () => computeMacros(personalInfo),
+    [personalInfo],
+  );
 
   // Derived: aggregate macros across all logged foods.
   const totalMacros = useMemo<TotalMacros>(() => {
@@ -201,65 +169,69 @@ const MacroCalculator = () => {
   }, [meals]);
 
   // Handle personal info input changes
-  const handlePersonalInfoChange = (name: string, value: string | number) => {
+  const handlePersonalInfoChange = (
+    name: string,
+    value: string | number | null,
+  ) => {
     setPersonalInfo({ ...personalInfo, [name]: value });
   };
 
   // Handle food search input
   const handleFoodSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const searchTerm = e.target.value;
-    setFoodSearch(searchTerm);
-
-    if (searchTerm.trim() === "") {
-      setFoodSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    const filteredFoods = foodDatabase
-      .filter((food) =>
-        food.name.toLowerCase().includes(searchTerm.toLowerCase()),
-      )
-      .slice(0, 5); // Limit to 5 suggestions
-
-    setFoodSuggestions(filteredFoods);
-    setShowSuggestions(true);
+    setFoodSearch(e.target.value);
+    setShowSuggestions(e.target.value.trim() !== "");
   };
 
   // Handle food selection from suggestions
   const handleFoodSelect = (food: Food) => {
+    setSelectedFood(food);
     setFoodSearch(food.name);
+    const ratio = portionSize / 100;
     setNewFood({
       ...newFood,
+      name: food.name,
+      protein: Number.parseFloat((food.protein * ratio).toFixed(1)),
+      carbs: Number.parseFloat((food.carbs * ratio).toFixed(1)),
+      fat: Number.parseFloat((food.fat * ratio).toFixed(1)),
+      calories: Math.round(food.calories * ratio),
+    });
+    setShowSuggestions(false);
+  };
+
+  // Save an OFF result to the user's custom foods. Reuses macros as-is.
+  const handleSaveOffToCustom = async (food: Food) => {
+    if (food.source !== "off") return;
+    await addCustomFood({
       name: food.name,
       protein: food.protein,
       carbs: food.carbs,
       fat: food.fat,
       calories: food.calories,
+      brand: food.brand,
     });
-    setShowSuggestions(false);
+    setCustomFoodsRev((r) => r + 1);
+  };
+
+  // Called when the CustomFoodForm dialog successfully saves a new food.
+  const handleCustomFoodSaved = (food: Food) => {
+    setCustomFoodsRev((r) => r + 1);
+    handleFoodSelect(food);
   };
 
   // Handle portion size change
   const handlePortionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newSize = Number.parseFloat(e.target.value) || 0;
+    const parsed = Number.parseFloat(e.target.value);
+    const newSize = Number.isNaN(parsed) ? 0 : parsed;
     setPortionSize(newSize);
-
-    // If a food is selected, recalculate macros based on new portion size
-    if (foodSearch.trim() !== "") {
-      const selectedFood = foodDatabase.find(
-        (food) => food.name === foodSearch,
-      );
-      if (selectedFood) {
-        const ratio = newSize / 100; // Database values are per 100g
-        setNewFood({
-          ...newFood,
-          protein: Number.parseFloat((selectedFood.protein * ratio).toFixed(1)),
-          carbs: Number.parseFloat((selectedFood.carbs * ratio).toFixed(1)),
-          fat: Number.parseFloat((selectedFood.fat * ratio).toFixed(1)),
-          calories: Math.round(selectedFood.calories * ratio),
-        });
-      }
+    if (selectedFood) {
+      const ratio = newSize / 100;
+      setNewFood({
+        ...newFood,
+        protein: Number.parseFloat((selectedFood.protein * ratio).toFixed(1)),
+        carbs: Number.parseFloat((selectedFood.carbs * ratio).toFixed(1)),
+        fat: Number.parseFloat((selectedFood.fat * ratio).toFixed(1)),
+        calories: Math.round(selectedFood.calories * ratio),
+      });
     }
   };
 
@@ -375,24 +347,36 @@ const MacroCalculator = () => {
     const originalFood = editingFood.originalFood;
     if (!originalFood) return;
 
-    // Find the original food in the database to get its base values per 100g
-    const dbFood = foodDatabase.find((food) => food.name === originalFood.name);
-    if (!dbFood) {
-      cancelEditing();
-      return;
+    // Prefer the per-100g values captured at add-time (works for builtin,
+    // custom, and OFF foods). Fall back to a builtin lookup for legacy
+    // entries that pre-date the originalValues capture.
+    let proteinPer100g: number | undefined;
+    let carbsPer100g: number | undefined;
+    let fatPer100g: number | undefined;
+    let caloriesPer100g: number | undefined;
+    if (originalFood.originalValues) {
+      ({ proteinPer100g, carbsPer100g, fatPer100g, caloriesPer100g } =
+        originalFood.originalValues);
+    } else {
+      const dbFood = foodDatabase.find((f) => f.name === originalFood.name);
+      if (!dbFood) {
+        cancelEditing();
+        return;
+      }
+      proteinPer100g = dbFood.protein;
+      carbsPer100g = dbFood.carbs;
+      fatPer100g = dbFood.fat;
+      caloriesPer100g = dbFood.calories;
     }
 
-    // Calculate the ratio for the new portion size
     const ratio = editingFood.portionSize / 100;
-
-    // Create updated food with new macros based on portion
     const updatedFood = {
       ...originalFood,
       portionSize: editingFood.portionSize,
-      protein: Number.parseFloat((dbFood.protein * ratio).toFixed(1)),
-      carbs: Number.parseFloat((dbFood.carbs * ratio).toFixed(1)),
-      fat: Number.parseFloat((dbFood.fat * ratio).toFixed(1)),
-      calories: Math.round(dbFood.calories * ratio),
+      protein: Number.parseFloat((proteinPer100g * ratio).toFixed(1)),
+      carbs: Number.parseFloat((carbsPer100g * ratio).toFixed(1)),
+      fat: Number.parseFloat((fatPer100g * ratio).toFixed(1)),
+      calories: Math.round(caloriesPer100g * ratio),
     };
 
     // Update the food in the meal
@@ -510,439 +494,42 @@ const MacroCalculator = () => {
     cancelReplacing();
   };
 
-  // Generate a full day meal plan based on target macros
+  // Generate a full day meal plan that hits the daily macro targets.
+  // Per meal we pick a (protein, carb, fat) food triplet and solve a 3×3
+  // linear system for portion sizes — see lib/meal-planner.ts.
   const generateMealPlan = async () => {
     setIsGeneratingMealPlan(true);
     setMealPlanMessage("Generating your personalized meal plan...");
-
-    // Clear current meals
-    const clearedMeals = meals.map((meal) => ({
-      ...meal,
-      foods: [] as FoodItem[],
-    }));
-
-    setMeals(clearedMeals);
-
-    // Set meal target distributions (percentage of daily calories)
-    const mealDistribution: Record<number, number> = {
-      1: 0.25, // Breakfast: 25%
-      2: 0.35, // Lunch: 35%
-      3: 0.3, // Dinner: 30%
-      4: 0.1, // Snacks: 10%
-    };
-
     try {
-      // Simulate API call delay (replace with actual API call if needed)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Yield once so the spinner paints before the synchronous solve.
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Build meal plan
-      const newMeals = [...clearedMeals];
-
-      // Calculate target macro ratios (percentage of total calories)
-      const proteinCalories = calculatedValues.protein * 4;
-      const carbCalories = calculatedValues.carbs * 4;
-      const fatCalories = calculatedValues.fat * 9;
-
-      const proteinRatio = proteinCalories / calculatedValues.targetCalories;
-      const carbRatio = carbCalories / calculatedValues.targetCalories;
-      const fatRatio = fatCalories / calculatedValues.targetCalories;
-
-      console.log(
-        `Target ratios - P:${(proteinRatio * 100).toFixed(1)}%, C:${(carbRatio * 100).toFixed(1)}%, F:${(fatRatio * 100).toFixed(1)}%`,
-      );
-
-      // Track total macros across all meals for balancing
-      const totalPlan = { protein: 0, carbs: 0, fat: 0, calories: 0 };
-
-      // For each meal type
-      for (let i = 0; i < newMeals.length; i++) {
-        const meal = newMeals[i];
-        const mealTypeString = meal.name.toLowerCase();
-        const mealCalorieTarget =
-          calculatedValues.targetCalories * mealDistribution[meal.id];
-
-        // Calculate macro targets for this specific meal
-        const mealProteinTarget =
-          calculatedValues.protein * mealDistribution[meal.id];
-        const mealCarbTarget =
-          calculatedValues.carbs * mealDistribution[meal.id];
-        const mealFatTarget = calculatedValues.fat * mealDistribution[meal.id];
-
-        // Get foods appropriate for this meal type
-        const availableFoods = foodDatabase.filter((food) =>
-          food.mealTypes.includes(
-            mealTypeString === "breakfast"
-              ? "breakfast"
-              : mealTypeString === "lunch"
-                ? "lunch"
-                : mealTypeString === "dinner"
-                  ? "dinner"
-                  : "snack",
-          ),
-        );
-
-        // Algorithm to select foods for this meal
-        const mealFoods: FoodItem[] = [];
-        const currentMealMacros = { protein: 0, carbs: 0, fat: 0, calories: 0 };
-        let iterations = 0;
-        const maxIterations = 150; // Prevent infinite loops
-
-        // Keep track of used food categories to avoid redundant combinations
-        const usedCategories: Record<string, number> = {};
-        const usedSubCategories: Record<string, boolean> = {};
-
-        // Sort foods by how well they match our target macro ratios
-        let sortedFoods = [...availableFoods];
-
-        sortedFoods.sort((a, b) => {
-          // Calculate how well each food matches our target macro distribution
-          // For protein-focused plans, heavily weight protein matching
-          const aProteinRatio = (a.protein * 4) / a.calories;
-          const aCarbRatio = (a.carbs * 4) / a.calories;
-          const aFatRatio = (a.fat * 9) / a.calories;
-
-          const bProteinRatio = (b.protein * 4) / b.calories;
-          const bCarbRatio = (b.carbs * 4) / b.calories;
-          const bFatRatio = (b.fat * 9) / b.calories;
-
-          // Calculate how closely each food's macro ratio matches our target
-          // Use weighted scoring to prioritize the most important macros
-
-          // Use specific weights based on the macro ratios we need
-          const proteinWeight = proteinRatio > 0.3 ? 3 : 1;
-          const carbWeight = carbRatio < 0.2 ? 3 : 1;
-          const fatWeight = fatRatio > 0.4 ? 3 : 1;
-
-          const aScore =
-            proteinWeight * Math.abs(aProteinRatio - proteinRatio) +
-            carbWeight * Math.abs(aCarbRatio - carbRatio) +
-            fatWeight * Math.abs(aFatRatio - fatRatio);
-
-          const bScore =
-            proteinWeight * Math.abs(bProteinRatio - proteinRatio) +
-            carbWeight * Math.abs(bCarbRatio - carbRatio) +
-            fatWeight * Math.abs(bFatRatio - fatRatio);
-
-          // Lower score is better (less deviation from target)
-          return aScore - bScore;
-        });
-
-        // Determine if we're protein-focused (more than 30% of calories from protein)
-        const isProteinFocused = proteinRatio > 0.3;
-
-        // Keep track of remaining macro targets for this meal
-        let remainingProtein = mealProteinTarget;
-        let remainingCarbs = mealCarbTarget;
-        let remainingFat = mealFatTarget;
-        let remainingCalories = mealCalorieTarget;
-
-        // Keep adding foods until we reach targets or max iterations
-        while (
-          (currentMealMacros.calories < mealCalorieTarget * 0.9 ||
-            (isProteinFocused &&
-              currentMealMacros.protein < mealProteinTarget * 0.8)) &&
-          iterations < maxIterations
-        ) {
-          iterations++;
-
-          // Use different selection approaches based on what we need most
-          let selectedFood;
-
-          // If we're behind on protein by more than 15%, strongly prioritize protein foods
-          if (
-            isProteinFocused &&
-            currentMealMacros.protein < mealProteinTarget * 0.6 &&
-            iterations < 50
-          ) {
-            // Get highest protein density foods
-            const proteinFoods = [...availableFoods].sort(
-              (a, b) => b.protein / b.calories - a.protein / a.calories,
-            );
-
-            // Pick from top 3 protein-rich foods
-            const proteinIndex = Math.floor(
-              Math.random() * Math.min(proteinFoods.length, 3),
-            );
-            selectedFood = proteinFoods[proteinIndex];
-          } else {
-            // Otherwise use our balanced approach with category restrictions
-            // Create a list of foods, preferring those from unused categories
-            let candidateFoods = [...sortedFoods];
-
-            // Apply strict subcategory filtering
-            // Never allow two foods with the same subcategory (with a few exceptions)
-            const allowMultiple = ["vegetable"];
-
-            // Filter out foods with duplicate subcategories
-            const filteredBySubCategory = candidateFoods.filter((food) => {
-              // Include the food if:
-              // 1. It has no subcategory
-              // 2. Its subcategory is in the allowMultiple list
-              // 3. Its subcategory hasn't been used yet
-              return (
-                !food.subCategory ||
-                allowMultiple.includes(food.subCategory) ||
-                !usedSubCategories[food.subCategory]
-              );
-            });
-
-            // If we have foods that pass the strict subcategory filter, use those
-            if (filteredBySubCategory.length > 0) {
-              candidateFoods = filteredBySubCategory;
-            }
-
-            // Further prioritize foods from categories we haven't used much
-            // This ensures a good balance of food groups
-            const categoryLimitExceptions = ["vegetable"];
-            const preferredFoods = candidateFoods.filter((food) => {
-              return (usedCategories[food.category] || 0) < 1;
-            });
-
-            // If we have preferred foods based on category limits, use those
-            if (preferredFoods.length > 0) {
-              candidateFoods = preferredFoods;
-            }
-
-            // If we still have multiple candidates, select a food with some randomness
-            // from our best options (limited to top 3 for more consistency)
-            const randomIndex = Math.floor(
-              Math.random() * Math.min(candidateFoods.length, 3),
-            );
-            selectedFood = candidateFoods[randomIndex];
-          }
-
-          if (!selectedFood) continue;
-
-          // Calculate appropriate portion size based on remaining macros
-          let portionMultiplier = 1;
-
-          // If protein is our limiting factor (in high-protein diets)
-          if (isProteinFocused && remainingProtein < selectedFood.protein) {
-            portionMultiplier = remainingProtein / selectedFood.protein;
-          }
-          // If calories are getting tight, scale based on remaining calories
-          else if (remainingCalories < selectedFood.calories) {
-            portionMultiplier = remainingCalories / selectedFood.calories;
-          }
-
-          // Apply a mild portion variation (90-110% of calculated portion)
-          portionMultiplier *= 0.9 + Math.random() * 0.2;
-
-          // Set minimum portion size
-          portionMultiplier = Math.max(portionMultiplier, 0.25);
-
-          // For small remaining amounts, use smaller portions
-          if (remainingCalories < mealCalorieTarget * 0.2) {
-            portionMultiplier = Math.min(portionMultiplier, 0.5);
-          }
-
-          // Calculate portion size in grams
-          const portionSize = Math.round(portionMultiplier * 100);
-
-          // Create the food item with adjusted portion
-          const foodWithPortion = {
-            id: Date.now() + Math.random(),
-            name: selectedFood.name,
-            protein: Number.parseFloat(
-              (selectedFood.protein * portionMultiplier).toFixed(1),
-            ),
-            carbs: Number.parseFloat(
-              (selectedFood.carbs * portionMultiplier).toFixed(1),
-            ),
-            fat: Number.parseFloat(
-              (selectedFood.fat * portionMultiplier).toFixed(1),
-            ),
-            calories: Math.round(selectedFood.calories * portionMultiplier),
-            portionSize: portionSize,
-            originalValues: {
-              proteinPer100g: selectedFood.protein,
-              carbsPer100g: selectedFood.carbs,
-              fatPer100g: selectedFood.fat,
-              caloriesPer100g: selectedFood.calories,
-            },
-          };
-
-          // Add to meal and update current macros
-          mealFoods.push(foodWithPortion);
-          currentMealMacros.protein += foodWithPortion.protein;
-          currentMealMacros.carbs += foodWithPortion.carbs;
-          currentMealMacros.fat += foodWithPortion.fat;
-          currentMealMacros.calories += foodWithPortion.calories;
-
-          // Track used categories and subcategories
-          if (selectedFood.category) {
-            usedCategories[selectedFood.category] =
-              (usedCategories[selectedFood.category] || 0) + 1;
-          }
-          if (selectedFood.subCategory) {
-            usedSubCategories[selectedFood.subCategory] = true;
-          }
-
-          // Update remaining targets
-          remainingProtein = Math.max(
-            0,
-            mealProteinTarget - currentMealMacros.protein,
-          );
-          remainingCarbs = Math.max(
-            0,
-            mealCarbTarget - currentMealMacros.carbs,
-          );
-          remainingFat = Math.max(0, mealFatTarget - currentMealMacros.fat);
-          remainingCalories = Math.max(
-            0,
-            mealCalorieTarget - currentMealMacros.calories,
-          );
-
-          // Avoid selecting the same food again too frequently
-          if (
-            mealFoods.filter((f) => f.name === selectedFood.name).length >= 2
-          ) {
-            sortedFoods = sortedFoods.filter(
-              (f) => f.name !== selectedFood.name,
-            );
-          }
-
-          // If we're running out of food options, break
-          if (sortedFoods.length < 2) break;
-
-          // Re-sort foods based on remaining needs
-          if (iterations % 3 === 0) {
-            // Calculate what percentage of targets we've met
-            const proteinPercent =
-              currentMealMacros.protein / mealProteinTarget;
-            const carbPercent = currentMealMacros.carbs / mealCarbTarget;
-            const fatPercent = currentMealMacros.fat / mealFatTarget;
-
-            // Determine which macro we need most
-            const lowestPercent = Math.min(
-              proteinPercent,
-              carbPercent,
-              fatPercent,
-            );
-
-            // Resort foods based on which macro we need most
-            if (lowestPercent === proteinPercent) {
-              sortedFoods.sort(
-                (a, b) => b.protein / b.calories - a.protein / a.calories,
-              );
-            } else if (lowestPercent === carbPercent) {
-              sortedFoods.sort(
-                (a, b) => b.carbs / b.calories - a.carbs / a.calories,
-              );
-            } else {
-              sortedFoods.sort(
-                (a, b) => b.fat / b.calories - a.fat / a.calories,
-              );
-            }
-          }
-        }
-
-        // Consolidate duplicate foods in the meal
-        const consolidatedFoods: FoodItem[] = [];
-        const foodMap: Record<string, FoodItem> = {};
-
-        for (const food of mealFoods) {
-          if (foodMap[food.name]) {
-            // Combine with existing entry
-            foodMap[food.name].protein += food.protein;
-            foodMap[food.name].carbs += food.carbs;
-            foodMap[food.name].fat += food.fat;
-            foodMap[food.name].calories += food.calories;
-            foodMap[food.name].portionSize += food.portionSize;
-          } else {
-            // Create new entry
-            foodMap[food.name] = { ...food };
-          }
-        }
-
-        // Convert map back to array
-        for (const name in foodMap) {
-          // Round the values after consolidation
-          const consolidatedFood = foodMap[name];
-          consolidatedFood.protein = Number.parseFloat(
-            consolidatedFood.protein.toFixed(1),
-          );
-          consolidatedFood.carbs = Number.parseFloat(
-            consolidatedFood.carbs.toFixed(1),
-          );
-          consolidatedFood.fat = Number.parseFloat(
-            consolidatedFood.fat.toFixed(1),
-          );
-
-          consolidatedFoods.push(consolidatedFood);
-        }
-
-        // Check if the totals are reasonable (for validation)
-        const mealTotals = {
-          protein: consolidatedFoods.reduce(
-            (sum, food) => sum + food.protein,
-            0,
-          ),
-          carbs: consolidatedFoods.reduce((sum, food) => sum + food.carbs, 0),
-          fat: consolidatedFoods.reduce((sum, food) => sum + food.fat, 0),
-          calories: consolidatedFoods.reduce(
-            (sum, food) => sum + food.calories,
-            0,
-          ),
-        };
-
-        // Log meal totals for debugging
-        console.log(
-          `${meal.name} totals: P=${mealTotals.protein.toFixed(1)}g, C=${mealTotals.carbs.toFixed(1)}g, F=${mealTotals.fat.toFixed(1)}g, Cal=${mealTotals.calories}`,
-        );
-
-        // Update this meal with the consolidated foods
-        newMeals[i] = { ...newMeals[i], foods: consolidatedFoods };
-
-        // Update total plan macros
-        totalPlan.protein += mealTotals.protein;
-        totalPlan.carbs += mealTotals.carbs;
-        totalPlan.fat += mealTotals.fat;
-        totalPlan.calories += mealTotals.calories;
+      // Pull saved custom foods (silent if IndexedDB is unavailable).
+      let customFoods: Food[] = [];
+      try {
+        const rows = await listCustomFoods();
+        customFoods = rows.map(customToFood);
+      } catch {
+        // Fine — proceed with builtin only.
       }
 
-      // Calculate how close we are to targets
-      const proteinPercent =
-        (totalPlan.protein / calculatedValues.protein) * 100;
-      const carbPercent = (totalPlan.carbs / calculatedValues.carbs) * 100;
-      const fatPercent = (totalPlan.fat / calculatedValues.fat) * 100;
-      const caloriePercent =
-        (totalPlan.calories / calculatedValues.targetCalories) * 100;
+      const daily = {
+        protein: calculatedValues.protein,
+        carbs: calculatedValues.carbs,
+        fat: calculatedValues.fat,
+        calories: calculatedValues.targetCalories,
+      };
+      const planned = planDay(meals, foodDatabase, daily, { customFoods });
+      const summary = summarisePlan(planned, daily);
 
-      console.log(
-        `Final plan - P:${proteinPercent.toFixed(1)}%, C:${carbPercent.toFixed(1)}%, F:${fatPercent.toFixed(1)}%, Cal:${caloriePercent.toFixed(1)}%`,
-      );
+      setMeals(planned);
 
-      // Add a message about the meal plan quality
-      let qualityMessage = "Meal plan generated successfully!";
-      if (
-        proteinPercent > 85 &&
-        proteinPercent < 115 &&
-        carbPercent > 85 &&
-        carbPercent < 115 &&
-        fatPercent > 85 &&
-        fatPercent < 115
-      ) {
-        qualityMessage = "Excellent meal plan generated with balanced macros!";
-      } else if (
-        proteinPercent < 70 ||
-        proteinPercent > 130 ||
-        carbPercent < 70 ||
-        carbPercent > 130 ||
-        fatPercent < 70 ||
-        fatPercent > 130
-      ) {
-        qualityMessage =
-          "Meal plan generated, but some macro targets were difficult to meet perfectly with available foods.";
-      }
-
-      setMealPlanMessage(qualityMessage);
-      setMeals(newMeals);
-
-      // Automatically hide message after 5 seconds
-      setTimeout(() => {
-        setMealPlanMessage("");
-      }, 5000);
+      const fmt = (n: number) => `${Math.round(n)}%`;
+      const msg = summary.withinTolerance
+        ? `Plan hits P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`
+        : `Plan within reach — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)}. Limited by available foods.`;
+      setMealPlanMessage(msg);
+      setTimeout(() => setMealPlanMessage(""), 5000);
     } catch (error) {
       setMealPlanMessage("Error generating meal plan. Please try again.");
       console.error("Meal plan generation error:", error);
@@ -952,93 +539,73 @@ const MacroCalculator = () => {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
-      <div className="flex flex-col gap-6">
-        <header className="flex items-center justify-between py-8">
-          <div className="flex items-center gap-3">
-            <div className="bg-teal-100 p-3 rounded-xl">
-              <Calculator className="h-7 w-7 text-teal-600" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">NutriTrack</h1>
-              <p className="text-gray-500">Macro Calculator & Meal Planner</p>
-            </div>
+    <AppShell
+      current={view}
+      onSelect={setView}
+    >
+      {view === "calculator" && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <PersonalInfoForm
+              personalInfo={personalInfo}
+              onPersonalInfoChange={handlePersonalInfoChange}
+            />
           </div>
-        </header>
-
-        <Tabs
-          defaultValue="calculator"
-          className="w-full"
-        >
-          <TabsList className="mb-6 bg-gray-100 p-1 rounded-lg">
-            <TabsTrigger
-              value="calculator"
-              className="rounded-md px-6 py-2.5 data-[state=active]:bg-white"
-            >
-              <Calculator className="h-4 w-4 mr-2" />
-              Calculator
-            </TabsTrigger>
-            <TabsTrigger
-              value="meal-planner"
-              className="rounded-md px-6 py-2.5 data-[state=active]:bg-white"
-            >
-              <Utensils className="h-4 w-4 mr-2" />
-              Meal Planner
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="calculator">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <PersonalInfoForm
-                personalInfo={personalInfo}
-                onPersonalInfoChange={handlePersonalInfoChange}
-              />
-              <MacroResults
-                calculatedValues={calculatedValues}
-                totalMacros={totalMacros}
-              />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="meal-planner">
-            <MealPlanner
+          <div className="lg:col-span-2">
+            <MacroResults
               calculatedValues={calculatedValues}
               totalMacros={totalMacros}
-              meals={meals}
-              newFood={newFood}
-              foodSearch={foodSearch}
-              foodSuggestions={foodSuggestions}
-              showSuggestions={showSuggestions}
-              portionSize={portionSize}
-              isGeneratingMealPlan={isGeneratingMealPlan}
-              mealPlanMessage={mealPlanMessage}
-              editingFood={editingFood}
-              replacingFood={replacingFood}
-              suggestionsRef={suggestionsRef}
-              replacementSuggestionsRef={replacementSuggestionsRef}
-              setNewFood={setNewFood}
-              setFoodSearch={setFoodSearch}
-              setPortionSize={setPortionSize}
-              handleFoodSearch={handleFoodSearch}
-              handleFoodSelect={handleFoodSelect}
-              handlePortionChange={handlePortionChange}
-              handleFoodChange={handleFoodChange}
-              addFood={addFood}
-              removeFood={removeFood}
-              startEditingFood={startEditingFood}
-              cancelEditing={cancelEditing}
-              handleEditPortionChange={handleEditPortionChange}
-              saveEditedPortion={saveEditedPortion}
-              startReplacingFood={startReplacingFood}
-              cancelReplacing={cancelReplacing}
-              handleReplacementSearch={handleReplacementSearch}
-              replaceFood={replaceFood}
-              generateMealPlan={generateMealPlan}
             />
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+
+      {view === "plan" && (
+        <MealPlanner
+          calculatedValues={calculatedValues}
+          totalMacros={totalMacros}
+          meals={meals}
+          newFood={newFood}
+          foodSearch={foodSearch}
+          foodSuggestions={foodSuggestions}
+          showSuggestions={showSuggestions}
+          isSearchingRemote={search.isSearchingRemote}
+          portionSize={portionSize}
+          isGeneratingMealPlan={isGeneratingMealPlan}
+          mealPlanMessage={mealPlanMessage}
+          editingFood={editingFood}
+          replacingFood={replacingFood}
+          suggestionsRef={suggestionsRef}
+          replacementSuggestionsRef={replacementSuggestionsRef}
+          setNewFood={setNewFood}
+          setFoodSearch={setFoodSearch}
+          setPortionSize={setPortionSize}
+          handleFoodSearch={handleFoodSearch}
+          handleFoodSelect={handleFoodSelect}
+          handlePortionChange={handlePortionChange}
+          handleFoodChange={handleFoodChange}
+          addFood={addFood}
+          removeFood={removeFood}
+          startEditingFood={startEditingFood}
+          cancelEditing={cancelEditing}
+          handleEditPortionChange={handleEditPortionChange}
+          saveEditedPortion={saveEditedPortion}
+          startReplacingFood={startReplacingFood}
+          cancelReplacing={cancelReplacing}
+          handleReplacementSearch={handleReplacementSearch}
+          replaceFood={replaceFood}
+          generateMealPlan={generateMealPlan}
+          onSaveOffToCustom={handleSaveOffToCustom}
+          onOpenCustomFoodForm={() => setCustomFoodOpen(true)}
+        />
+      )}
+
+      <CustomFoodForm
+        open={customFoodOpen}
+        onOpenChange={setCustomFoodOpen}
+        onSaved={handleCustomFoodSaved}
+      />
+    </AppShell>
   );
 };
 

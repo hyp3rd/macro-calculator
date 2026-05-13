@@ -59,32 +59,32 @@ const FoodItem: React.FC<FoodItemProps> = ({
   const isReplacing = replacingFood.foodId === food.id;
 
   return (
-    <tr className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-      <td className="px-4 py-3 whitespace-nowrap">
+    <tr className="transition-colors hover:bg-muted/40">
+      <td className="whitespace-nowrap px-3 py-2.5">
         {isReplacing ? (
           <div
             className="relative"
             ref={replacementSuggestionsRef}
           >
             <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"
                 value={replacingFood.searchTerm}
                 onChange={handleReplacementSearch}
-                className="pl-10 py-1 h-9 bg-gray-50 border-gray-200"
+                className="h-9 pl-9"
                 placeholder="Search for food..."
                 autoFocus
               />
             </div>
             {replacingFood.showSuggestions &&
               replacingFood.suggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
+                <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-border/60 bg-popover shadow-lg">
                   <ul className="py-1">
                     {replacingFood.suggestions.map((suggestion, index) => (
                       <li
                         key={index}
-                        className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm transition-colors"
+                        className="cursor-pointer px-3 py-1.5 text-sm transition-colors hover:bg-accent"
                         onClick={() => replaceFood(suggestion)}
                       >
                         {suggestion.name}
@@ -95,45 +95,52 @@ const FoodItem: React.FC<FoodItemProps> = ({
               )}
           </div>
         ) : (
-          food.name
+          <span className="text-foreground">{food.name}</span>
         )}
       </td>
-      <td className="px-4 py-3 text-center">
+      <td className="px-3 py-2.5 text-center font-mono text-xs tabular-nums text-muted-foreground">
         {isEditing ? (
-          <div className="flex items-center justify-center">
-            <Input
-              type="number"
-              value={editingFood.portionSize}
-              onChange={handleEditPortionChange}
-              className="w-20 py-1 h-9 text-center bg-gray-50 border-gray-200"
-              min="1"
-              max="1000"
-            />
-          </div>
+          <Input
+            type="number"
+            value={editingFood.portionSize}
+            onChange={handleEditPortionChange}
+            className="mx-auto h-8 w-20 text-center"
+            min="1"
+            max="1000"
+          />
         ) : (
-          food.portionSize || "-"
+          (food.portionSize ?? "-") + (food.portionSize ? "g" : "")
         )}
       </td>
-      <td className="px-4 py-3 text-center font-medium text-teal-600">
+      <td
+        className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
+        style={{ color: "hsl(var(--macro-protein))" }}
+      >
         {food.protein}g
       </td>
-      <td className="px-4 py-3 text-center font-medium text-violet-600">
+      <td
+        className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
+        style={{ color: "hsl(var(--macro-carbs))" }}
+      >
         {food.carbs}g
       </td>
-      <td className="px-4 py-3 text-center font-medium text-rose-600">
+      <td
+        className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
+        style={{ color: "hsl(var(--macro-fat))" }}
+      >
         {food.fat}g
       </td>
-      <td className="px-4 py-3 text-center font-medium text-gray-700">
+      <td className="px-3 py-2.5 text-center font-mono text-xs font-medium tabular-nums text-foreground">
         {food.calories}
       </td>
-      <td className="px-4 py-3 text-right">
+      <td className="px-3 py-2.5 text-right">
         {isEditing ? (
-          <div className="flex items-center justify-end space-x-2">
+          <div className="flex items-center justify-end gap-1">
             <Button
               onClick={saveEditedPortion}
               variant="ghost"
               size="sm"
-              className="h-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
+              className="h-7"
             >
               Save
             </Button>
@@ -141,7 +148,7 @@ const FoodItem: React.FC<FoodItemProps> = ({
               onClick={cancelEditing}
               variant="ghost"
               size="sm"
-              className="h-8 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
+              className="h-7"
             >
               Cancel
             </Button>
@@ -151,12 +158,12 @@ const FoodItem: React.FC<FoodItemProps> = ({
             onClick={cancelReplacing}
             variant="ghost"
             size="sm"
-            className="h-8 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
+            className="h-7"
           >
             Cancel
           </Button>
         ) : (
-          <div className="flex items-center justify-end space-x-1">
+          <div className="flex items-center justify-end gap-0.5">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -164,14 +171,12 @@ const FoodItem: React.FC<FoodItemProps> = ({
                     onClick={() => startReplacingFood(mealId, food)}
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                    className="h-7 w-7 text-muted-foreground"
                   >
-                    <Search className="h-4 w-4" />
+                    <Search className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p>Replace food</p>
-                </TooltipContent>
+                <TooltipContent>Replace food</TooltipContent>
               </Tooltip>
             </TooltipProvider>
 
@@ -182,14 +187,12 @@ const FoodItem: React.FC<FoodItemProps> = ({
                     onClick={() => startEditingFood(mealId, food)}
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                    className="h-7 w-7 text-muted-foreground"
                   >
-                    <Edit2 className="h-4 w-4" />
+                    <Edit2 className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p>Edit portion</p>
-                </TooltipContent>
+                <TooltipContent>Edit portion</TooltipContent>
               </Tooltip>
             </TooltipProvider>
 
@@ -200,14 +203,12 @@ const FoodItem: React.FC<FoodItemProps> = ({
                     onClick={() => removeFood(mealId, food.id)}
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p>Remove food</p>
-                </TooltipContent>
+                <TooltipContent>Remove food</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>

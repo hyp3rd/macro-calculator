@@ -1,119 +1,137 @@
-# NutriTrack - Macro Calculator & Meal Planner
+# Macro Calculator
 
-NutriTrack is a modern, interactive web application built with Next.js that helps users calculate their macronutrient targets and plan their daily meals. The app provides a seamless user experience for tracking nutrition goals and creating personalized meal plans.
+A personal macro calculator and meal planner. Single-page Next.js app, no
+backend, no accounts — your custom foods live in your browser's IndexedDB.
 
-![NutriTrack Screenshot](./public/layout.png)
+## What it does
 
-## Features
+- **Calculator** — Mifflin-St Jeor BMR, TDEE from activity, target calories
+  from a signed weekly weight-change rate (1 kg ≈ 7700 kcal, clamped at
+  ±1%/week of bodyweight and floored at `max(BMR, 1200)`). Optional manual
+  TDEE override for calibrating against real-world weight change when the
+  textbook formula misses.
+- **Meal Plan** — log foods against four meals (Breakfast / Lunch / Dinner
+  / Snacks); auto-fill a day that hits your macro targets via a 3×3 linear
+  solve over a protein-dominant / carb-dominant / fat-dominant food triplet,
+  with portions snapped to 5 g.
+- **Food search** — three sources merged into one box:
+  - **Built-in**: a curated set in `data/food-database.ts`
+  - **My foods**: custom foods you saved (IndexedDB, persists across reloads)
+  - **Open Food Facts**: live search via a same-origin proxy at
+    `/api/off-search` (caches 60 s at the edge). "Save to my foods" copies an
+    OFF result into IndexedDB so it's available offline next time.
 
-- **Personalized Macro Calculation**: Calculate your daily macronutrient needs based on:
-  - Gender
-  - Age
-  - Weight
-  - Height
-  - Activity level
-  - Fitness goal (lose, maintain, or gain weight)
-  - Diet type preferences (balanced, low carb, low fat)
+## Stack
 
-- **Interactive Meal Planner**:
-  - Search and add foods from a comprehensive food database
-  - Track protein, carbs, fat, and total calories
-  - Edit portion sizes
-  - Replace foods with alternatives
-  - Visual progress indicators for daily macro goals
+| Concern       | Choice                                                       |
+| ------------- | ------------------------------------------------------------ |
+| Framework     | Next.js 16 (App Router, Turbopack)                           |
+| Runtime       | React 19                                                     |
+| Language      | TypeScript 6 (`strict: true`)                                |
+| Styles        | Tailwind CSS 4 + CSS variables                               |
+| Motion        | [`motion`](https://motion.dev) (Framer Motion's successor)   |
+| UI primitives | shadcn/ui (Radix)                                            |
+| Local storage | [`idb`](https://github.com/jakearchibald/idb) over IndexedDB |
+| Unit tests    | Vitest                                                       |
+| E2E tests     | Playwright (Chromium)                                        |
+| Lint          | ESLint 9 flat config via `eslint-config-next`                |
+| Format        | Prettier 3                                                   |
 
-- **Automated Meal Plan Generation**:
-  - Generate complete daily meal plans that match your macro targets
-  - Meals balanced across breakfast, lunch, dinner, and snacks
-  - Smart algorithm adjusts food combinations to meet specific macro ratios
+## Requirements
 
-- **User-Friendly Interface**:
-  - Clean, modern design with visual progress indicators
-  - Intuitive food search functionality
-  - Responsive layout works on desktop and mobile devices
+- Node.js ≥ 22 (the repo's `.nvmrc` pins 25)
+- npm
 
-## Getting Started
+## Setup
 
-### Prerequisites
+```bash
+nvm use            # picks up Node 25 from .nvmrc
+npm install
+npm run dev        # http://localhost:3000
+```
 
-- Node.js 18.0 or higher
-- npm, yarn, pnpm, or bun
+## Scripts
 
-### Installation
+| Command              | What it does                            |
+| -------------------- | --------------------------------------- |
+| `npm run dev`        | Dev server with Turbopack               |
+| `npm run build`      | Production build                        |
+| `npm run start`      | Serve the production build              |
+| `npm run lint`       | ESLint                                  |
+| `npm run typecheck`  | `tsc --noEmit`                          |
+| `npm test`           | Vitest run-once                         |
+| `npm run test:watch` | Vitest watch mode                       |
+| `npm run e2e`        | Playwright (auto-starts the dev server) |
+| `npm run format`     | Prettier write                          |
 
-1. Clone the repository:
+A `Makefile` wraps these for CI: `make ci` runs `pre-commit fmt-check lint
+typecheck test sec build` and is what should pass before any merge.
+`make help` prints the full list.
 
-   ```bash
-   git clone https://github.com/your-username/macro-calculator.git
-   cd macro-calculator
-   ```
+## Tests
 
-2. Install dependencies:
+- `lib/macros.test.ts` — TDEE math, deficit/surplus symmetry, rate cap,
+  BMR/1200 floor, manual TDEE override path.
+- `lib/meal-planner.test.ts` — `det3` / `solve3x3`, near-singular rejection,
+  `planMeal` hits targets within tolerance, custom-foods inclusion, full-day
+  `planDay` summary.
+- `lib/db.test.ts` — `addCustomFood` against `fake-indexeddb`, including a
+  regression for the `keyPath` + `autoIncrement` + `id: undefined` crash.
+- `tests/e2e/smoke.spec.ts` — render, sidebar nav, food search, Auto-fill.
 
-   ```bash
-   npm install
-   # or
-   yarn
-   # or
-   pnpm install
-   # or
-   bun install
-   ```
+## Architecture
 
-3. Run the development server:
+Single-page client app. State lives in `macro-calculator.tsx` (the page
+root) and is wired into a sidebar-driven `AppShell`. The pure calculation
+and planning logic is extracted to `lib/macros.ts` and `lib/meal-planner.ts`
+so it's testable in isolation.
 
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   # or
-   pnpm dev
-   # or
-   bun dev
-   ```
+```text
+app/
+  api/off-search/route.ts   # Same-origin proxy to OFF Search-a-licious
+  globals.css               # Monochrome design tokens (light/dark)
+  layout.tsx                # ThemeProvider, fonts
+components/
+  shell/                    # AppShell, Sidebar, Topbar, ThemeToggle, NumberTicker
+  macro/                    # Calculator + Meal Plan screens
+  ui/                       # shadcn primitives
+hooks/use-food-search.ts    # Merged debounced search
+lib/
+  db.ts                     # IndexedDB wrapper (idb)
+  macros.ts                 # BMR, TDEE, target calories
+  meal-planner.ts           # 3×3 Cramer-based portion solver
+  openfoodfacts.ts          # Client for /api/off-search
+data/food-database.ts       # Built-in foods
+```
 
-4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the application.
+## Open Food Facts
 
-## How to Use
+The browser can't reach `search.openfoodfacts.org` directly (no
+`Access-Control-Allow-Origin`). Requests go through `app/api/off-search/`,
+which:
 
-1. **Calculate Your Macros**:
-   - Enter your personal information in the Calculator tab
-   - Your BMR, TDEE, target calories, and macronutrients will be automatically calculated
+- Validates `q` and clamps `limit` (1–25)
+- Sends a `User-Agent` per OFF's API guidelines
+- Forwards the client `AbortSignal`
+- Adds `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`
+- Returns `502` on upstream failure
 
-2. **Add Foods to Your Meal Plan**:
-   - Switch to the Meal Planner tab
-   - Search for foods in the database or enter custom nutrition values
-   - Specify portion size and select the meal to add it to
+## Roadmap
 
-3. **Generate a Meal Plan**:
-   - Click the "Generate Meal Plan" button for an AI-generated meal plan based on your targets
-   - The system will create a balanced plan across all meals that meets your macro goals
+Done:
 
-4. **Customize Your Plan**:
-   - Edit food portion sizes by clicking the edit icon
-   - Replace foods with alternatives using the search feature
-   - Remove foods you don't want with the delete button
+- Phase 1 — visual / layout revamp, theme, motion, sidebar nav.
 
-5. **Track Your Progress**:
-   - Visual progress bars show how close you are to reaching your daily targets
-   - The Daily Totals section provides a summary of your current macros vs. targets
+Next:
 
-## Tech Stack
+- Phase 2 — Profile data model + persistence. `personalInfo`, meal log, and
+  weight history move from React state into IndexedDB (extending what
+  `lib/db.ts` already does for custom foods).
+- Phase 3 — Saved meal templates, daily log history, progress charts.
 
-- **Framework**: [Next.js](https://nextjs.org/)
-- **UI Components**: [shadcn/ui](https://ui.shadcn.com/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **Icons**: [Lucide Icons](https://lucide.dev/)
+## Status
 
-## License
+`make ci` green: lint 0, tsc 0, 28 unit tests, build, security audit. 3
+Playwright smoke tests pass against the dev server.
 
-This project is released under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Food database compiled from various nutritional data sources
-- UI design inspired by modern health and fitness applications
-
----
-
-Built with ❤️ by F.
+No LICENSE file present in the repo at the moment.

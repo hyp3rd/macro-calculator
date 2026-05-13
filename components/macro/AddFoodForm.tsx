@@ -1,14 +1,10 @@
+"use client";
+
 import React from "react";
-import { Plus, Search } from "lucide-react";
+import { Loader2, Plus, Save, Search } from "lucide-react";
 import { Food, FoodItem, Meal } from "../../components/macro/types";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
@@ -26,6 +22,7 @@ interface AddFoodFormProps {
   foodSuggestions: Food[];
   showSuggestions: boolean;
   portionSize: number;
+  isSearchingRemote: boolean;
   suggestionsRef: React.RefObject<HTMLDivElement>;
   setFoodSearch: (value: string) => void;
   setNewFood: (food: FoodItem) => void;
@@ -36,7 +33,21 @@ interface AddFoodFormProps {
   handlePortionChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleFoodChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   addFood: () => void;
+  onSaveOffToCustom: (food: Food) => void;
+  onOpenCustomFoodForm: () => void;
 }
+
+const SOURCE_LABEL: Record<NonNullable<Food["source"]>, string> = {
+  builtin: "Built-in",
+  custom: "My food",
+  off: "Open Food Facts",
+};
+
+const SOURCE_CLASS: Record<NonNullable<Food["source"]>, string> = {
+  builtin: "bg-muted text-muted-foreground hover:bg-muted",
+  custom: "bg-foreground/10 text-foreground hover:bg-foreground/10",
+  off: "bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400",
+};
 
 const AddFoodForm: React.FC<AddFoodFormProps> = ({
   meals,
@@ -45,6 +56,7 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
   foodSuggestions,
   showSuggestions,
   portionSize,
+  isSearchingRemote,
   suggestionsRef,
   setNewFood,
   handleFoodSearch,
@@ -52,156 +64,164 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
   handlePortionChange,
   handleFoodChange,
   addFood,
+  onSaveOffToCustom,
+  onOpenCustomFoodForm,
 }) => {
   return (
-    <Card className="border-none shadow-lg">
-      <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
-        <CardTitle className="text-2xl">Add Food</CardTitle>
-        <CardDescription>
-          Search for foods or enter custom nutrition values
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="pt-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-          <div className="lg:col-span-2">
-            <Label
-              htmlFor="foodSearch"
-              className="text-gray-700"
-            >
-              Food Name
-            </Label>
-            <div
-              className="relative mt-1"
-              ref={suggestionsRef}
-            >
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  id="foodSearch"
-                  type="text"
-                  value={foodSearch}
-                  onChange={handleFoodSearch}
-                  className="pl-10 bg-gray-50 border-gray-200"
-                  placeholder="Search for a food..."
-                />
-              </div>
-              {showSuggestions && foodSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
-                  <ul className="py-1">
-                    {foodSuggestions.map((food, index) => (
-                      <li
-                        key={index}
-                        className="px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors"
-                        onClick={() => handleFoodSelect(food)}
+    <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+      <header className="flex items-start justify-between border-b border-border/60 px-5 py-3">
+        <div>
+          <h3 className="text-sm font-semibold tracking-tight">Add Food</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Search built-in, your saved foods, and Open Food Facts.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onOpenCustomFoodForm}
+          className="h-8 gap-1.5"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Custom food
+        </Button>
+      </header>
+
+      <div className="space-y-4 px-5 py-4">
+        {/* Search */}
+        <div
+          ref={suggestionsRef}
+          className="relative"
+        >
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="foodSearch"
+            type="text"
+            value={foodSearch}
+            onChange={handleFoodSearch}
+            placeholder="Search for a food…"
+            className="pl-9 pr-9"
+          />
+          {isSearchingRemote && (
+            <Loader2
+              aria-label="Searching Open Food Facts"
+              className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+            />
+          )}
+
+          {showSuggestions && foodSuggestions.length > 0 && (
+            <div className="absolute left-0 right-0 z-20 mt-1 max-h-72 overflow-auto rounded-md border border-border/60 bg-popover shadow-lg">
+              <ul className="py-1">
+                {foodSuggestions.map((food) => (
+                  <li
+                    key={food.id ?? food.name}
+                    className="group flex items-center gap-2 px-3 py-2 transition-colors hover:bg-accent"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleFoodSelect(food)}
+                      className="flex-1 text-left text-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">{food.name}</span>
+                        {food.source && (
+                          <Badge
+                            variant="secondary"
+                            className={`${SOURCE_CLASS[food.source]} shrink-0 text-[10px] font-medium uppercase tracking-wide`}
+                          >
+                            {SOURCE_LABEL[food.source]}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {Math.round(food.calories)} kcal · P{" "}
+                        {food.protein.toFixed(1)}g · C {food.carbs.toFixed(1)}g
+                        · F {food.fat.toFixed(1)}g
+                        <span className="ml-1 text-muted-foreground/60">
+                          / 100g
+                        </span>
+                      </div>
+                    </button>
+                    {food.source === "off" && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSaveOffToCustom(food);
+                        }}
+                        className="h-7 w-7"
+                        title="Save to my foods"
                       >
-                        {food.name}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                        <Save className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-
-          <div>
-            <Label
-              htmlFor="portionSize"
-              className="text-gray-700"
-            >
-              Portion (g)
-            </Label>
-            <Input
-              id="portionSize"
-              type="number"
-              value={portionSize}
-              onChange={handlePortionChange}
-              className="mt-1 bg-gray-50 border-gray-200"
-              min="0"
-              step="1"
-            />
-          </div>
-
-          <div>
-            <Label
-              htmlFor="protein"
-              className="text-gray-700"
-            >
-              Protein (g)
-            </Label>
-            <Input
-              id="protein"
-              name="protein"
-              type="number"
-              value={newFood.protein}
-              onChange={handleFoodChange}
-              className="mt-1 bg-gray-50 border-gray-200"
-              min="0"
-              step="0.1"
-            />
-          </div>
-
-          <div>
-            <Label
-              htmlFor="carbs"
-              className="text-gray-700"
-            >
-              Carbs (g)
-            </Label>
-            <Input
-              id="carbs"
-              name="carbs"
-              type="number"
-              value={newFood.carbs}
-              onChange={handleFoodChange}
-              className="mt-1 bg-gray-50 border-gray-200"
-              min="0"
-              step="0.1"
-            />
-          </div>
-
-          <div>
-            <Label
-              htmlFor="fat"
-              className="text-gray-700"
-            >
-              Fat (g)
-            </Label>
-            <Input
-              id="fat"
-              name="fat"
-              type="number"
-              value={newFood.fat}
-              onChange={handleFoodChange}
-              className="mt-1 bg-gray-50 border-gray-200"
-              min="0"
-              step="0.1"
-            />
-          </div>
-
-          <div>
-            <Label
-              htmlFor="calories"
-              className="text-gray-700"
-            >
-              Calories
-            </Label>
-            <Input
-              id="calories"
-              name="calories"
-              type="number"
-              value={newFood.calories}
-              onChange={handleFoodChange}
-              className="mt-1 bg-gray-100 border-gray-200"
-              readOnly
-            />
-          </div>
+          )}
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-grow">
+        {/* Macros for the picked food at the chosen portion */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <FieldNum
+            id="portionSize"
+            label="Portion"
+            unit="g"
+            value={portionSize}
+            onChange={handlePortionChange}
+            min={0}
+            step={1}
+          />
+          <FieldNum
+            id="protein"
+            name="protein"
+            label="Protein"
+            unit="g"
+            value={newFood.protein}
+            onChange={handleFoodChange}
+            min={0}
+            step={0.1}
+          />
+          <FieldNum
+            id="carbs"
+            name="carbs"
+            label="Carbs"
+            unit="g"
+            value={newFood.carbs}
+            onChange={handleFoodChange}
+            min={0}
+            step={0.1}
+          />
+          <FieldNum
+            id="fat"
+            name="fat"
+            label="Fat"
+            unit="g"
+            value={newFood.fat}
+            onChange={handleFoodChange}
+            min={0}
+            step={0.1}
+          />
+          <FieldNum
+            id="calories"
+            name="calories"
+            label="kcal"
+            unit=""
+            value={newFood.calories}
+            onChange={handleFoodChange}
+            readOnly
+          />
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1.5">
             <Label
               htmlFor="selectedMealId"
-              className="text-gray-700"
+              className="text-xs font-medium text-muted-foreground"
             >
               Add to Meal
             </Label>
@@ -210,11 +230,11 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
               onValueChange={(value) =>
                 setNewFood({
                   ...newFood,
-                  selectedMealId: Number.parseInt(value),
+                  selectedMealId: Number.parseInt(value, 10),
                 })
               }
             >
-              <SelectTrigger className="mt-1 bg-gray-50 border-gray-200">
+              <SelectTrigger id="selectedMealId">
                 <SelectValue placeholder="Select meal" />
               </SelectTrigger>
               <SelectContent>
@@ -229,20 +249,67 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
               </SelectContent>
             </Select>
           </div>
-
-          <div className="flex items-end">
-            <Button
-              onClick={addFood}
-              className="w-full sm:w-auto bg-teal-600 hover:bg-teal-700"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Food
-            </Button>
-          </div>
+          <Button
+            type="button"
+            onClick={addFood}
+            className="h-9 gap-1.5"
+          >
+            <Plus className="h-4 w-4" />
+            Add to meal
+          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 };
+
+function FieldNum({
+  id,
+  name,
+  label,
+  unit,
+  value,
+  onChange,
+  min,
+  step,
+  readOnly,
+}: {
+  id: string;
+  name?: string;
+  label: string;
+  unit: string;
+  value: number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  min?: number;
+  step?: number;
+  readOnly?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label
+        htmlFor={id}
+        className="flex items-baseline justify-between text-xs font-medium text-muted-foreground"
+      >
+        <span>{label}</span>
+        {unit && (
+          <span className="text-[10px] text-muted-foreground/60">{unit}</span>
+        )}
+      </Label>
+      <Input
+        id={id}
+        name={name}
+        type="number"
+        value={value}
+        onChange={onChange}
+        min={min}
+        step={step}
+        readOnly={readOnly}
+        className={`font-mono tabular-nums ${
+          readOnly ? "bg-muted/50 text-muted-foreground" : ""
+        }`}
+      />
+    </div>
+  );
+}
 
 export default AddFoodForm;
