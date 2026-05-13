@@ -1,7 +1,11 @@
-import React from 'react';
-import { Food, FoodItem as FoodItemType, Meal as MealType } from '../../components/macro/types';
-import { Badge } from '../ui/badge';
-import FoodItem from './FoodItem';
+import React from "react";
+import {
+  Food,
+  FoodItem as FoodItemType,
+  Meal as MealType,
+} from "../../components/macro/types";
+import { Badge } from "../ui/badge";
+import FoodItem from "./FoodItem";
 
 interface MealItemProps {
   meal: MealType;
@@ -44,18 +48,29 @@ const MealItem: React.FC<MealItemProps> = ({
   cancelReplacing,
   handleReplacementSearch,
   replaceFood,
-  removeFood
+  removeFood,
 }) => {
-  const totalProtein = Math.round(meal.foods.reduce((sum, food) => sum + food.protein, 0));
-  const totalCarbs = Math.round(meal.foods.reduce((sum, food) => sum + food.carbs, 0));
-  const totalFat = Math.round(meal.foods.reduce((sum, food) => sum + food.fat, 0));
-  const totalCalories = Math.round(meal.foods.reduce((sum, food) => sum + food.calories, 0));
+  const totalProtein = Math.round(
+    meal.foods.reduce((sum, food) => sum + food.protein, 0),
+  );
+  const totalCarbs = Math.round(
+    meal.foods.reduce((sum, food) => sum + food.carbs, 0),
+  );
+  const totalFat = Math.round(
+    meal.foods.reduce((sum, food) => sum + food.fat, 0),
+  );
+  const totalCalories = Math.round(
+    meal.foods.reduce((sum, food) => sum + food.calories, 0),
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center">
         <h3 className="text-xl font-semibold text-gray-800">{meal.name}</h3>
-        <Badge variant="outline" className="ml-2 bg-gray-50">
+        <Badge
+          variant="outline"
+          className="ml-2 bg-gray-50"
+        >
           {totalCalories} cal
         </Badge>
       </div>

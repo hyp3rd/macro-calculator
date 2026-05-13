@@ -1,9 +1,21 @@
-import React from 'react';
-import { PersonalInfo } from '../../components/macro/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import React from "react";
+import { PersonalInfo } from "../../components/macro/types";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../ui/card";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 interface PersonalInfoFormProps {
   personalInfo: PersonalInfo;
@@ -12,18 +24,23 @@ interface PersonalInfoFormProps {
 
 const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
   personalInfo,
-  onPersonalInfoChange
+  onPersonalInfoChange,
 }) => {
   return (
     <Card className="lg:col-span-2 border-none shadow-lg">
       <CardHeader className="bg-gradient-to-r from-teal-50 to-violet-50 rounded-t-xl">
         <CardTitle className="text-2xl">Personal Information</CardTitle>
-        <CardDescription>Enter your details to calculate your daily macro targets</CardDescription>
+        <CardDescription>
+          Enter your details to calculate your daily macro targets
+        </CardDescription>
       </CardHeader>
       <CardContent className="pt-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <Label htmlFor="gender" className="text-gray-700">
+            <Label
+              htmlFor="gender"
+              className="text-gray-700"
+            >
               Gender
             </Label>
             <Select
@@ -41,14 +58,23 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="age" className="text-gray-700">
+            <Label
+              htmlFor="age"
+              className="text-gray-700"
+            >
               Age
             </Label>
             <Input
               id="age"
               type="number"
               value={personalInfo.age}
-              onChange={(e) => onPersonalInfoChange("age", Number.parseInt(e.target.value))}
+              onChange={(e) => {
+                const v = Number.parseInt(e.target.value, 10);
+                onPersonalInfoChange(
+                  "age",
+                  Number.isNaN(v) ? personalInfo.age : v,
+                );
+              }}
               min="18"
               max="100"
               className="bg-gray-50 border-gray-200"
@@ -56,14 +82,23 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="weight" className="text-gray-700">
+            <Label
+              htmlFor="weight"
+              className="text-gray-700"
+            >
               Weight (kg)
             </Label>
             <Input
               id="weight"
               type="number"
               value={personalInfo.weight}
-              onChange={(e) => onPersonalInfoChange("weight", Number.parseFloat(e.target.value))}
+              onChange={(e) => {
+                const v = Number.parseFloat(e.target.value);
+                onPersonalInfoChange(
+                  "weight",
+                  Number.isNaN(v) ? personalInfo.weight : v,
+                );
+              }}
               min="40"
               max="200"
               step="0.1"
@@ -72,14 +107,23 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="height" className="text-gray-700">
+            <Label
+              htmlFor="height"
+              className="text-gray-700"
+            >
               Height (cm)
             </Label>
             <Input
               id="height"
               type="number"
               value={personalInfo.height}
-              onChange={(e) => onPersonalInfoChange("height", Number.parseInt(e.target.value))}
+              onChange={(e) => {
+                const v = Number.parseInt(e.target.value, 10);
+                onPersonalInfoChange(
+                  "height",
+                  Number.isNaN(v) ? personalInfo.height : v,
+                );
+              }}
               min="130"
               max="230"
               className="bg-gray-50 border-gray-200"
@@ -87,21 +131,34 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="activityLevel" className="text-gray-700">
+            <Label
+              htmlFor="activityLevel"
+              className="text-gray-700"
+            >
               Activity Level
             </Label>
             <Select
               value={personalInfo.activityLevel}
-              onValueChange={(value) => onPersonalInfoChange("activityLevel", value)}
+              onValueChange={(value) =>
+                onPersonalInfoChange("activityLevel", value)
+              }
             >
               <SelectTrigger className="bg-gray-50 border-gray-200">
                 <SelectValue placeholder="Select activity level" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="sedentary">Sedentary (little or no exercise)</SelectItem>
-                <SelectItem value="light">Light (exercise 1-3 days/week)</SelectItem>
-                <SelectItem value="moderate">Moderate (exercise 3-5 days/week)</SelectItem>
-                <SelectItem value="active">Active (exercise 6-7 days/week)</SelectItem>
+                <SelectItem value="sedentary">
+                  Sedentary (little or no exercise)
+                </SelectItem>
+                <SelectItem value="light">
+                  Light (exercise 1-3 days/week)
+                </SelectItem>
+                <SelectItem value="moderate">
+                  Moderate (exercise 3-5 days/week)
+                </SelectItem>
+                <SelectItem value="active">
+                  Active (exercise 6-7 days/week)
+                </SelectItem>
                 <SelectItem value="veryActive">
                   Very Active (physically demanding job or 2x training)
                 </SelectItem>
@@ -110,7 +167,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="goal" className="text-gray-700">
+            <Label
+              htmlFor="goal"
+              className="text-gray-700"
+            >
               Goal
             </Label>
             <Select
@@ -129,7 +189,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="dietType" className="text-gray-700">
+            <Label
+              htmlFor="dietType"
+              className="text-gray-700"
+            >
               Diet Type
             </Label>
             <Select

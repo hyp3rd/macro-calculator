@@ -1,12 +1,24 @@
-import { RefreshCw } from 'lucide-react';
-import React from 'react';
-import { CalculatedValues, Food, FoodItem, Meal } from '../../components/macro/types';
-import { Button } from '../ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../ui/card';
-import { Separator } from '../ui/separator';
-import AddFoodForm from './AddFoodForm';
-import DailyTotals from './DailyTotals';
-import MealItem from './MealItem';
+import React from "react";
+import { RefreshCw } from "lucide-react";
+import {
+  CalculatedValues,
+  Food,
+  FoodItem,
+  Meal,
+} from "../../components/macro/types";
+import { Button } from "../ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../ui/card";
+import { Separator } from "../ui/separator";
+import AddFoodForm from "./AddFoodForm";
+import DailyTotals from "./DailyTotals";
+import MealItem from "./MealItem";
 
 interface MealPlannerProps {
   calculatedValues: CalculatedValues;
@@ -92,7 +104,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   cancelReplacing,
   handleReplacementSearch,
   replaceFood,
-  generateMealPlan
+  generateMealPlan,
 }) => {
   return (
     <div className="grid grid-cols-1 gap-6">

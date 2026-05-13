@@ -1,9 +1,14 @@
-import { Edit2, Search, Trash2 } from 'lucide-react';
-import React from 'react';
-import { Food, FoodItem as FoodItemType } from '../../components/macro/types';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import React from "react";
+import { Edit2, Search, Trash2 } from "lucide-react";
+import { Food, FoodItem as FoodItemType } from "../../components/macro/types";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 interface FoodItemProps {
   food: FoodItemType;
@@ -48,7 +53,7 @@ const FoodItem: React.FC<FoodItemProps> = ({
   cancelReplacing,
   handleReplacementSearch,
   replaceFood,
-  removeFood
+  removeFood,
 }) => {
   const isEditing = editingFood.foodId === food.id;
   const isReplacing = replacingFood.foodId === food.id;
@@ -57,7 +62,10 @@ const FoodItem: React.FC<FoodItemProps> = ({
     <tr className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
       <td className="px-4 py-3 whitespace-nowrap">
         {isReplacing ? (
-          <div className="relative" ref={replacementSuggestionsRef}>
+          <div
+            className="relative"
+            ref={replacementSuggestionsRef}
+          >
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
               <Input
@@ -69,21 +77,22 @@ const FoodItem: React.FC<FoodItemProps> = ({
                 autoFocus
               />
             </div>
-            {replacingFood.showSuggestions && replacingFood.suggestions.length > 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
-                <ul className="py-1">
-                  {replacingFood.suggestions.map((suggestion, index) => (
-                    <li
-                      key={index}
-                      className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm transition-colors"
-                      onClick={() => replaceFood(suggestion)}
-                    >
-                      {suggestion.name}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {replacingFood.showSuggestions &&
+              replacingFood.suggestions.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200">
+                  <ul className="py-1">
+                    {replacingFood.suggestions.map((suggestion, index) => (
+                      <li
+                        key={index}
+                        className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm transition-colors"
+                        onClick={() => replaceFood(suggestion)}
+                      >
+                        {suggestion.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
           </div>
         ) : (
           food.name
@@ -105,10 +114,18 @@ const FoodItem: React.FC<FoodItemProps> = ({
           food.portionSize || "-"
         )}
       </td>
-      <td className="px-4 py-3 text-center font-medium text-teal-600">{food.protein}g</td>
-      <td className="px-4 py-3 text-center font-medium text-violet-600">{food.carbs}g</td>
-      <td className="px-4 py-3 text-center font-medium text-rose-600">{food.fat}g</td>
-      <td className="px-4 py-3 text-center font-medium text-gray-700">{food.calories}</td>
+      <td className="px-4 py-3 text-center font-medium text-teal-600">
+        {food.protein}g
+      </td>
+      <td className="px-4 py-3 text-center font-medium text-violet-600">
+        {food.carbs}g
+      </td>
+      <td className="px-4 py-3 text-center font-medium text-rose-600">
+        {food.fat}g
+      </td>
+      <td className="px-4 py-3 text-center font-medium text-gray-700">
+        {food.calories}
+      </td>
       <td className="px-4 py-3 text-right">
         {isEditing ? (
           <div className="flex items-center justify-end space-x-2">
