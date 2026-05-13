@@ -1,18 +1,49 @@
 /**
  * @vitest-environment jsdom
  */
+import type { Meal, PersonalInfo } from "@/components/macro/types";
 import { IDBFactory } from "fake-indexeddb";
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Replace the global IDB factory with a fresh one and re-import the
- * module under test so its cached `dbPromise` is gone. The `auto` import
- * above installs IDBRequest/IDBOpenDBRequest/etc. on globalThis. */
 async function freshDb() {
   globalThis.indexedDB = new IDBFactory();
   vi.resetModules();
   return await import("./db");
 }
+
+const BASELINE_PROFILE: PersonalInfo = {
+  gender: "male",
+  age: 30,
+  weight: 70,
+  height: 175,
+  activityLevel: "moderate",
+  goal: "maintain",
+  dietType: "balanced",
+  weeklyRateKg: 0.5,
+  manualTdee: null,
+};
+
+const SAMPLE_MEALS: Meal[] = [
+  {
+    id: 1,
+    name: "Breakfast",
+    foods: [
+      {
+        id: 1,
+        name: "Oats",
+        protein: 13,
+        carbs: 67,
+        fat: 7,
+        calories: 389,
+        portionSize: 100,
+      },
+    ],
+  },
+  { id: 2, name: "Lunch", foods: [] },
+  { id: 3, name: "Dinner", foods: [] },
+  { id: 4, name: "Snacks", foods: [] },
+];
 
 describe("addCustomFood", () => {
   beforeEach(async () => {
@@ -95,5 +126,143 @@ describe("addCustomFood", () => {
     });
     const rows = await listCustomFoods();
     expect(rows.map((r) => r.id)).toEqual([b, a]);
+  });
+});
+
+describe("profile", () => {
+  beforeEach(async () => {
+    await freshDb();
+  });
+
+  it("returns null before any profile is saved", async () => {
+    const { getProfile } = await freshDb();
+    expect(await getProfile()).toBeNull();
+  });
+
+  it("round-trips a profile through saveProfile + getProfile", async () => {
+    const { getProfile, saveProfile } = await freshDb();
+    await saveProfile(BASELINE_PROFILE);
+    const loaded = await getProfile();
+    expect(loaded).toEqual(BASELINE_PROFILE);
+  });
+
+  it("does not expose the internal `_key` field on read", async () => {
+    const { getProfile, saveProfile } = await freshDb();
+    await saveProfile(BASELINE_PROFILE);
+    const loaded = await getProfile();
+    expect(loaded).not.toHaveProperty("_key");
+  });
+
+  it("overwrites on second saveProfile (single record)", async () => {
+    const { getProfile, saveProfile } = await freshDb();
+    await saveProfile(BASELINE_PROFILE);
+    await saveProfile({ ...BASELINE_PROFILE, weight: 75 });
+    const loaded = await getProfile();
+    expect(loaded?.weight).toBe(75);
+  });
+});
+
+describe("daily logs", () => {
+  beforeEach(async () => {
+    await freshDb();
+  });
+
+  it("returns null for a day with no log", async () => {
+    const { getDailyLog } = await freshDb();
+    expect(await getDailyLog("2026-01-01")).toBeNull();
+  });
+
+  it("round-trips a log", async () => {
+    const { getDailyLog, saveDailyLog } = await freshDb();
+    await saveDailyLog("2026-05-13", SAMPLE_MEALS);
+    const loaded = await getDailyLog("2026-05-13");
+    expect(loaded?.date).toBe("2026-05-13");
+    expect(loaded?.meals).toEqual(SAMPLE_MEALS);
+    expect(loaded?.updatedAt).toBeGreaterThan(0);
+  });
+
+  it("uses the date as the key (overwrites on same-day save)", async () => {
+    const { getDailyLog, saveDailyLog, listDailyLogs } = await freshDb();
+    await saveDailyLog("2026-05-13", SAMPLE_MEALS);
+    await saveDailyLog("2026-05-13", []);
+    expect(await listDailyLogs()).toHaveLength(1);
+    const loaded = await getDailyLog("2026-05-13");
+    expect(loaded?.meals).toEqual([]);
+  });
+
+  it("orders listDailyLogs newest-first", async () => {
+    const { saveDailyLog, listDailyLogs } = await freshDb();
+    await saveDailyLog("2026-05-11", []);
+    await saveDailyLog("2026-05-13", []);
+    await saveDailyLog("2026-05-12", []);
+    const rows = await listDailyLogs();
+    expect(rows.map((r) => r.date)).toEqual([
+      "2026-05-13",
+      "2026-05-12",
+      "2026-05-11",
+    ]);
+  });
+
+  it("dateKey produces ISO YYYY-MM-DD in local timezone", async () => {
+    const { dateKey } = await freshDb();
+    expect(dateKey(new Date(2026, 0, 5))).toBe("2026-01-05"); // month is 0-indexed
+    expect(dateKey(new Date(2026, 11, 31))).toBe("2026-12-31");
+  });
+});
+
+describe("meal templates", () => {
+  beforeEach(async () => {
+    await freshDb();
+  });
+
+  it("round-trips a template through save + list", async () => {
+    const { saveMealTemplate, listMealTemplates } = await freshDb();
+    const foods = SAMPLE_MEALS[0].foods;
+    const id = await saveMealTemplate({ name: "Oats bowl", foods });
+    expect(typeof id).toBe("number");
+    expect(id).toBeGreaterThan(0);
+
+    const rows = await listMealTemplates();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(id);
+    expect(rows[0].name).toBe("Oats bowl");
+    expect(rows[0].foods).toEqual(foods);
+    expect(rows[0].createdAt).toBeGreaterThan(0);
+    expect(rows[0].updatedAt).toBe(rows[0].createdAt);
+  });
+
+  it("orders listMealTemplates newest-first", async () => {
+    const { saveMealTemplate, listMealTemplates } = await freshDb();
+    const a = await saveMealTemplate({
+      name: "A",
+      foods: SAMPLE_MEALS[0].foods,
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    const b = await saveMealTemplate({
+      name: "B",
+      foods: SAMPLE_MEALS[0].foods,
+    });
+    const rows = await listMealTemplates();
+    expect(rows.map((r) => r.id)).toEqual([b, a]);
+  });
+
+  it("deleteMealTemplate removes the record", async () => {
+    const { saveMealTemplate, listMealTemplates, deleteMealTemplate } =
+      await freshDb();
+    const id = await saveMealTemplate({
+      name: "Doomed",
+      foods: SAMPLE_MEALS[0].foods,
+    });
+    await deleteMealTemplate(id);
+    expect(await listMealTemplates()).toHaveLength(0);
+  });
+
+  it("does not crash on the IndexedDB keyPath when id is unspecified", async () => {
+    // Same regression class as customFoods — verify the autoIncrement
+    // path doesn't see an explicit undefined.
+    const { saveMealTemplate } = await freshDb();
+    await expect(
+      saveMealTemplate({ name: "Smoke", foods: SAMPLE_MEALS[0].foods }),
+    ).resolves.toBeTypeOf("number");
   });
 });

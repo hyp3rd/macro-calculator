@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Loader2, RefreshCw, Utensils } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CalculatedValues,
@@ -9,6 +9,7 @@ import {
   FoodItem,
   Meal,
 } from "../../components/macro/types";
+import { DateNavigator } from "../shell/DateNavigator";
 import { Button } from "../ui/button";
 import AddFoodForm from "./AddFoodForm";
 import DailyTotals from "./DailyTotals";
@@ -23,6 +24,9 @@ interface MealPlannerProps {
     calories: number;
   };
   meals: Meal[];
+  selectedDate: string;
+  today: string;
+  onSelectDate: (date: string) => void;
   newFood: FoodItem;
   foodSearch: string;
   foodSuggestions: Food[];
@@ -67,12 +71,17 @@ interface MealPlannerProps {
   setPortionSize: (size: number) => void;
   onSaveOffToCustom: (food: Food) => void;
   onOpenCustomFoodForm: () => void;
+  onSaveAsTemplate: (mealId: number) => void;
+  onAddFromTemplate: (mealId: number) => void;
 }
 
 const MealPlanner: React.FC<MealPlannerProps> = ({
   calculatedValues,
   totalMacros,
   meals,
+  selectedDate,
+  today,
+  onSelectDate,
   newFood,
   foodSearch,
   foodSuggestions,
@@ -105,8 +114,9 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   generateMealPlan,
   onSaveOffToCustom,
   onOpenCustomFoodForm,
+  onSaveAsTemplate,
+  onAddFromTemplate,
 }) => {
-  const hasAnyFoods = meals.some((m) => m.foods.length > 0);
   const isError = mealPlanMessage.toLowerCase().includes("error");
 
   return (
@@ -134,22 +144,19 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
       />
 
       <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
-        <header className="flex items-center justify-between border-b border-border/60 px-5 py-3">
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight">
-              Today's Plan
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Build it manually, or auto-fill from your macros.
-            </p>
-          </div>
+        <header className="flex flex-col gap-3 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <DateNavigator
+            date={selectedDate}
+            today={today}
+            onSelect={onSelectDate}
+          />
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={generateMealPlan}
             disabled={isGeneratingMealPlan}
-            className="h-8 gap-2"
+            className="h-8 gap-2 self-end sm:self-auto"
           >
             {isGeneratingMealPlan ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -179,28 +186,26 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
         </AnimatePresence>
 
         <div className="divide-y divide-border/60">
-          {hasAnyFoods ? (
-            meals.map((meal) => (
-              <MealItem
-                key={meal.id}
-                meal={meal}
-                editingFood={editingFood}
-                replacingFood={replacingFood}
-                replacementSuggestionsRef={replacementSuggestionsRef}
-                startEditingFood={startEditingFood}
-                cancelEditing={cancelEditing}
-                handleEditPortionChange={handleEditPortionChange}
-                saveEditedPortion={saveEditedPortion}
-                startReplacingFood={startReplacingFood}
-                cancelReplacing={cancelReplacing}
-                handleReplacementSearch={handleReplacementSearch}
-                replaceFood={replaceFood}
-                removeFood={removeFood}
-              />
-            ))
-          ) : (
-            <EmptyMealsState onGenerate={generateMealPlan} />
-          )}
+          {meals.map((meal) => (
+            <MealItem
+              key={meal.id}
+              meal={meal}
+              editingFood={editingFood}
+              replacingFood={replacingFood}
+              replacementSuggestionsRef={replacementSuggestionsRef}
+              startEditingFood={startEditingFood}
+              cancelEditing={cancelEditing}
+              handleEditPortionChange={handleEditPortionChange}
+              saveEditedPortion={saveEditedPortion}
+              startReplacingFood={startReplacingFood}
+              cancelReplacing={cancelReplacing}
+              handleReplacementSearch={handleReplacementSearch}
+              replaceFood={replaceFood}
+              removeFood={removeFood}
+              onSaveAsTemplate={onSaveAsTemplate}
+              onAddFromTemplate={onAddFromTemplate}
+            />
+          ))}
         </div>
 
         <div className="border-t border-border/60 bg-muted/30 px-5 py-4">
@@ -213,33 +218,5 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
     </div>
   );
 };
-
-function EmptyMealsState({ onGenerate }: { onGenerate: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 px-5 py-12 text-center">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-        <Utensils
-          className="h-5 w-5 text-muted-foreground"
-          aria-hidden
-        />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">No meals yet</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Search and add foods above, or let us auto-fill a day for you.
-        </p>
-      </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={onGenerate}
-      >
-        <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-        Auto-fill
-      </Button>
-    </div>
-  );
-}
 
 export default MealPlanner;

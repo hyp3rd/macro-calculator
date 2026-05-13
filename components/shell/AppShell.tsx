@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Sidebar, type ViewKey } from "./Sidebar";
+import { StorageBanner } from "./StorageBanner";
 import { Topbar } from "./Topbar";
 
 type Props = {
@@ -23,6 +24,7 @@ export function AppShell({ current, onSelect, children }: Props) {
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <Topbar current={current} />
+        <StorageBanner />
         <div className="relative flex-1 overflow-auto">
           <AnimatePresence
             mode="wait"
