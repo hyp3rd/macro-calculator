@@ -1,17 +1,12 @@
-import { FlatCompat } from "@eslint/eslintrc";
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
+import next from "eslint-config-next";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
 const eslintConfig = [
-  ...compat.config({
-    extends: ["next", "next/core-web-vitals", "next/typescript"],
+  ...next,
+  ...nextCoreWebVitals,
+  ...nextTypescript,
+  {
     rules: {
       "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
@@ -19,17 +14,9 @@ const eslintConfig = [
       "react-hooks/exhaustive-deps": "warn",
       "@typescript-eslint/explicit-function-return-type": "off",
       "@typescript-eslint/ban-ts-comment": "warn",
-      "@typescript-eslint/no-non-null-assertion": "warn"
+      "@typescript-eslint/no-non-null-assertion": "warn",
     },
-    parserOptions: {
-      project: "./tsconfig.json",
-      ecmaVersion: 2020,
-      sourceType: "module",
-      ecmaFeatures: {
-        jsx: true
-      }
-    }
-  }),
-]
+  },
+];
 
 export default eslintConfig;

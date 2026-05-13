@@ -48,7 +48,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
               id="age"
               type="number"
               value={personalInfo.age}
-              onChange={(e) => onPersonalInfoChange("age", Number.parseInt(e.target.value))}
+              onChange={(e) => {
+                const v = Number.parseInt(e.target.value, 10)
+                onPersonalInfoChange("age", Number.isNaN(v) ? personalInfo.age : v)
+              }}
               min="18"
               max="100"
               className="bg-gray-50 border-gray-200"
@@ -63,7 +66,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
               id="weight"
               type="number"
               value={personalInfo.weight}
-              onChange={(e) => onPersonalInfoChange("weight", Number.parseFloat(e.target.value))}
+              onChange={(e) => {
+                const v = Number.parseFloat(e.target.value)
+                onPersonalInfoChange("weight", Number.isNaN(v) ? personalInfo.weight : v)
+              }}
               min="40"
               max="200"
               step="0.1"
@@ -79,7 +85,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
               id="height"
               type="number"
               value={personalInfo.height}
-              onChange={(e) => onPersonalInfoChange("height", Number.parseInt(e.target.value))}
+              onChange={(e) => {
+                const v = Number.parseInt(e.target.value, 10)
+                onPersonalInfoChange("height", Number.isNaN(v) ? personalInfo.height : v)
+              }}
               min="130"
               max="230"
               className="bg-gray-50 border-gray-200"

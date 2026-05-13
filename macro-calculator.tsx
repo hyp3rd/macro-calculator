@@ -1,7 +1,7 @@
 "use client"
 
 import { Calculator, Utensils } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import MacroResults from './components/macro/MacroResults';
 import MealPlanner from './components/macro/MealPlanner';
 import PersonalInfoForm from './components/macro/PersonalInfoForm';
@@ -30,16 +30,6 @@ const MacroCalculator = () => {
     dietType: "balanced", // diet type option (balanced, lowCarb, lowFat)
   })
 
-  // State for calculated values
-  const [calculatedValues, setCalculatedValues] = useState<CalculatedValues>({
-    bmr: 0,
-    tdee: 0,
-    targetCalories: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-  })
-
   // State for meal planning
   const [meals, setMeals] = useState<Meal[]>([
     { id: 1, name: "Breakfast", foods: [] },
@@ -58,14 +48,6 @@ const MacroCalculator = () => {
     calories: 0,
     portionSize: 0,
     selectedMealId: 1,
-  })
-
-  // State for total macros from all foods
-  const [totalMacros, setTotalMacros] = useState<TotalMacros>({
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-    calories: 0,
   })
 
   // State for meal plan generation
@@ -145,79 +127,74 @@ const MacroCalculator = () => {
     }
   }, [])
 
-  // Calculate macros whenever personal info changes
-  useEffect(() => {
-    calculateMacros()
-  }, [personalInfo])
+  // Derived: BMR, TDEE, and target macros from personal info (Mifflin-St Jeor).
+  const calculatedValues = useMemo<CalculatedValues>(() => {
+    const bmr =
+      personalInfo.gender === "male"
+        ? 10 * personalInfo.weight + 6.25 * personalInfo.height - 5 * personalInfo.age + 5
+        : 10 * personalInfo.weight + 6.25 * personalInfo.height - 5 * personalInfo.age - 161
 
-  // Calculate total macros whenever meals change
-  useEffect(() => {
-    calculateTotalMacros()
-  }, [meals])
-
-  // Calculate BMR, TDEE, and macros
-  const calculateMacros = () => {
-    // Calculate BMR using Mifflin-St Jeor Equation
-    let bmr
-    if (personalInfo.gender === "male") {
-      bmr = 10 * personalInfo.weight + 6.25 * personalInfo.height - 5 * personalInfo.age + 5
-    } else {
-      bmr = 10 * personalInfo.weight + 6.25 * personalInfo.height - 5 * personalInfo.age - 161
-    }
-
-    // Calculate TDEE
     const tdee = bmr * activityMultipliers[personalInfo.activityLevel]
-
-    // Adjust calories based on goal
     const targetCalories = tdee * goalAdjustments[personalInfo.goal]
 
-    // Calculate macros based on goal and diet type
     let proteinRatio, fatRatio, carbRatio
-
-    // First set base values by goal
     if (personalInfo.goal === "lose") {
-      proteinRatio = 0.4 // 40% of calories from protein
-      fatRatio = 0.35 // 35% of calories from fat
-      carbRatio = 0.25 // 25% of calories from carbs
+      proteinRatio = 0.4
+      fatRatio = 0.35
+      carbRatio = 0.25
     } else if (personalInfo.goal === "gain") {
-      proteinRatio = 0.3 // 30% of calories from protein
-      fatRatio = 0.25 // 25% of calories from fat
-      carbRatio = 0.45 // 45% of calories from carbs
+      proteinRatio = 0.3
+      fatRatio = 0.25
+      carbRatio = 0.45
     } else {
-      // maintain
-      proteinRatio = 0.3 // 30% of calories from protein
-      fatRatio = 0.3 // 30% of calories from fat
-      carbRatio = 0.4 // 40% of calories from carbs
+      proteinRatio = 0.3
+      fatRatio = 0.3
+      carbRatio = 0.4
     }
 
-    // Then adjust based on diet type
     if (personalInfo.dietType === "lowCarb") {
-      // For low carb, we reduce carbs significantly, increase fat, and keep protein high
-      carbRatio = Math.max(0.15, carbRatio - 0.2) // Reduce carbs by 20%, but minimum 15%
-      proteinRatio = Math.min(0.4, proteinRatio + 0.05) // Increase protein slightly, max 40%
-      fatRatio = 1 - proteinRatio - carbRatio // Fat makes up the remainder
+      carbRatio = Math.max(0.15, carbRatio - 0.2)
+      proteinRatio = Math.min(0.4, proteinRatio + 0.05)
+      fatRatio = 1 - proteinRatio - carbRatio
     } else if (personalInfo.dietType === "lowFat") {
-      // For low fat, we reduce fat significantly, increase carbs, and keep protein high
-      fatRatio = Math.max(0.15, fatRatio - 0.15) // Reduce fat by 15%, but minimum 15%
-      proteinRatio = Math.min(0.4, proteinRatio + 0.05) // Increase protein slightly, max 40%
-      carbRatio = 1 - proteinRatio - fatRatio // Carbs make up the remainder
+      fatRatio = Math.max(0.15, fatRatio - 0.15)
+      proteinRatio = Math.min(0.4, proteinRatio + 0.05)
+      carbRatio = 1 - proteinRatio - fatRatio
     }
-    // No adjustment needed for 'balanced'
 
-    // Convert ratios to grams
-    const protein = Math.round((targetCalories * proteinRatio) / 4) // 4 calories per gram of protein
-    const fat = Math.round((targetCalories * fatRatio) / 9) // 9 calories per gram of fat
-    const carbs = Math.round((targetCalories * carbRatio) / 4) // 4 calories per gram of carbs
-
-    setCalculatedValues({
+    return {
       bmr: Math.round(bmr),
       tdee: Math.round(tdee),
       targetCalories: Math.round(targetCalories),
-      protein,
-      carbs,
-      fat,
+      protein: Math.round((targetCalories * proteinRatio) / 4),
+      carbs: Math.round((targetCalories * carbRatio) / 4),
+      fat: Math.round((targetCalories * fatRatio) / 9),
+    }
+  }, [personalInfo])
+
+  // Derived: aggregate macros across all logged foods.
+  const totalMacros = useMemo<TotalMacros>(() => {
+    let protein = 0
+    let carbs = 0
+    let fat = 0
+    let calories = 0
+
+    meals.forEach((meal) => {
+      meal.foods.forEach((food) => {
+        protein += food.protein
+        carbs += food.carbs
+        fat += food.fat
+        calories += food.calories
+      })
     })
-  }
+
+    return {
+      protein: Math.round(protein),
+      carbs: Math.round(carbs),
+      fat: Math.round(fat),
+      calories: Math.round(calories),
+    }
+  }, [meals])
 
   // Handle personal info input changes
   const handlePersonalInfoChange = (name: string, value: string | number) => {
@@ -529,30 +506,6 @@ const MacroCalculator = () => {
 
     setMeals(updatedMeals)
     cancelReplacing()
-  }
-
-  // Calculate total macros from all foods
-  const calculateTotalMacros = () => {
-    let protein = 0
-    let carbs = 0
-    let fat = 0
-    let calories = 0
-
-    meals.forEach((meal) => {
-      meal.foods.forEach((food) => {
-        protein += food.protein
-        carbs += food.carbs
-        fat += food.fat
-        calories += food.calories
-      })
-    })
-
-    setTotalMacros({
-      protein: Math.round(protein),
-      carbs: Math.round(carbs),
-      fat: Math.round(fat),
-      calories: Math.round(calories),
-    })
   }
 
   // Generate a full day meal plan based on target macros
