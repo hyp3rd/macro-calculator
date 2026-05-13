@@ -6,6 +6,7 @@ import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
 import MealPlanner from "./components/macro/MealPlanner";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
+import { ProgressView } from "./components/macro/ProgressView";
 import { SaveTemplateDialog } from "./components/macro/SaveTemplateDialog";
 import {
   CalculatedValues,
@@ -657,6 +658,10 @@ const MacroCalculator = () => {
             setTemplateDialog({ kind: "apply", mealId })
           }
         />
+      )}
+
+      {view === "progress" && (
+        <ProgressView targetCalories={calculatedValues.targetCalories} />
       )}
 
       <CustomFoodForm

@@ -118,6 +118,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   onAddFromTemplate,
 }) => {
   const isError = mealPlanMessage.toLowerCase().includes("error");
+  const dayIsEmpty = meals.every((m) => m.foods.length === 0);
 
   return (
     <div className="space-y-6">
@@ -184,6 +185,18 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {dayIsEmpty && (
+          <div className="border-b border-border/60 bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              No meals logged for this day.
+            </span>{" "}
+            Use the search above to add foods to any meal, apply a saved
+            template from a meal&apos;s menu, or hit{" "}
+            <span className="font-medium text-foreground">Auto-fill</span> to
+            generate a plan that matches your macros.
+          </div>
+        )}
 
         <div className="divide-y divide-border/60">
           {meals.map((meal) => (

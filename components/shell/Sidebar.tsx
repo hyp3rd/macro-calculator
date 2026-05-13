@@ -10,6 +10,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { UserMenu } from "./UserMenu";
 
 export type ViewKey = "calculator" | "plan" | "progress" | "foods" | "settings";
 
@@ -23,7 +24,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { key: "calculator", label: "Calculator", icon: Calculator },
   { key: "plan", label: "Meal Plan", icon: Utensils },
-  { key: "progress", label: "Progress", icon: LineChart, badge: "Soon" },
+  { key: "progress", label: "Progress", icon: LineChart },
   { key: "foods", label: "My Foods", icon: Activity, badge: "Soon" },
   { key: "settings", label: "Settings", icon: Settings, badge: "Soon" },
 ];
@@ -85,17 +86,7 @@ export function Sidebar({ current, onSelect }: Props) {
       </nav>
 
       <div className="border-t border-border/60 p-2">
-        <button
-          type="button"
-          disabled
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground/60"
-          title="Profile coming in phase 2"
-        >
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] font-medium">
-            ?
-          </div>
-          <span className="flex-1 text-left">Guest</span>
-        </button>
+        <UserMenu />
       </div>
     </aside>
   );

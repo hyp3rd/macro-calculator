@@ -1,9 +1,9 @@
 "use client";
 
 import type { PersonalInfo } from "@/components/macro/types";
-import { getProfile, saveProfile } from "@/lib/db";
+import { getProfile, saveProfile, saveWeightEntry, todayKey } from "@/lib/db";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const WRITE_DEBOUNCE_MS = 500;
 
@@ -26,6 +26,11 @@ export type ProfileState = {
 export function useProfile(defaultProfile: PersonalInfo): ProfileState {
   const [profile, setProfileState] = useState<PersonalInfo>(defaultProfile);
   const [isHydrated, setIsHydrated] = useState(false);
+  // Tracks the last weight we've persisted as a weigh-in. `null` until
+  // hydration completes; thereafter, updates fire a weighHistory entry
+  // for today only when the weight value itself changes (so editing other
+  // profile fields doesn't create phantom data points).
+  const lastWeighedKg = useRef<number | null>(null);
 
   // Load once.
   useEffect(() => {
@@ -56,6 +61,27 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
     }, WRITE_DEBOUNCE_MS);
     return () => window.clearTimeout(t);
   }, [profile, isHydrated]);
+
+  // Auto-capture weight changes into the weightHistory store. Seeds
+  // `lastWeighedKg` from the freshly-loaded profile on first hydrate (no
+  // write); subsequent changes fire a debounced weigh-in for today.
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (lastWeighedKg.current === null) {
+      lastWeighedKg.current = profile.weight;
+      return;
+    }
+    if (profile.weight === lastWeighedKg.current) return;
+    const target = profile.weight;
+    const t = window.setTimeout(() => {
+      saveWeightEntry(todayKey(), target)
+        .then(() => {
+          lastWeighedKg.current = target;
+        })
+        .catch(reportStorageError);
+    }, WRITE_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [profile.weight, isHydrated]);
 
   const patchProfile = useCallback(
     (name: keyof PersonalInfo, value: PersonalInfo[keyof PersonalInfo]) => {
