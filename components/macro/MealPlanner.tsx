@@ -1,5 +1,8 @@
+"use client";
+
 import React from "react";
-import { RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Utensils } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   CalculatedValues,
   Food,
@@ -7,15 +10,6 @@ import {
   Meal,
 } from "../../components/macro/types";
 import { Button } from "../ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "../ui/card";
-import { Separator } from "../ui/separator";
 import AddFoodForm from "./AddFoodForm";
 import DailyTotals from "./DailyTotals";
 import MealItem from "./MealItem";
@@ -33,6 +27,7 @@ interface MealPlannerProps {
   foodSearch: string;
   foodSuggestions: Food[];
   showSuggestions: boolean;
+  isSearchingRemote: boolean;
   portionSize: number;
   isGeneratingMealPlan: boolean;
   mealPlanMessage: string;
@@ -70,6 +65,8 @@ interface MealPlannerProps {
   replaceFood: (newFood: Food) => void;
   generateMealPlan: () => Promise<void>;
   setPortionSize: (size: number) => void;
+  onSaveOffToCustom: (food: Food) => void;
+  onOpenCustomFoodForm: () => void;
 }
 
 const MealPlanner: React.FC<MealPlannerProps> = ({
@@ -80,6 +77,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   foodSearch,
   foodSuggestions,
   showSuggestions,
+  isSearchingRemote,
   portionSize,
   isGeneratingMealPlan,
   mealPlanMessage,
@@ -105,16 +103,21 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   handleReplacementSearch,
   replaceFood,
   generateMealPlan,
+  onSaveOffToCustom,
+  onOpenCustomFoodForm,
 }) => {
+  const hasAnyFoods = meals.some((m) => m.foods.length > 0);
+  const isError = mealPlanMessage.toLowerCase().includes("error");
+
   return (
-    <div className="grid grid-cols-1 gap-6">
-      {/* Add Food Form */}
+    <div className="space-y-6">
       <AddFoodForm
         meals={meals}
         newFood={newFood}
         foodSearch={foodSearch}
         foodSuggestions={foodSuggestions}
         showSuggestions={showSuggestions}
+        isSearchingRemote={isSearchingRemote}
         portionSize={portionSize}
         suggestionsRef={suggestionsRef}
         setNewFood={setNewFood}
@@ -126,45 +129,58 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
         setFoodSearch={setFoodSearch}
         setShowSuggestions={() => {}}
         setPortionSize={setPortionSize}
+        onSaveOffToCustom={onSaveOffToCustom}
+        onOpenCustomFoodForm={onOpenCustomFoodForm}
       />
 
-      {/* Meal Plan */}
-      <Card className="border-none shadow-lg">
-        <CardHeader className="flex flex-row items-center justify-between bg-gradient-to-r from-violet-50 to-rose-50 rounded-t-xl">
+      <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+        <header className="flex items-center justify-between border-b border-border/60 px-5 py-3">
           <div>
-            <CardTitle className="text-2xl">Meal Plan</CardTitle>
-            <CardDescription>Track your daily meals and macros</CardDescription>
+            <h3 className="text-sm font-semibold tracking-tight">
+              Today's Plan
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Build it manually, or auto-fill from your macros.
+            </p>
           </div>
           <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={generateMealPlan}
             disabled={isGeneratingMealPlan}
-            variant="outline"
-            className="ml-auto bg-white hover:bg-gray-50"
+            className="h-8 gap-2"
           >
             {isGeneratingMealPlan ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Generating...
-              </>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Generate Meal Plan
-              </>
+              <RefreshCw className="h-3.5 w-3.5" />
             )}
+            {isGeneratingMealPlan ? "Generating…" : "Auto-fill"}
           </Button>
-        </CardHeader>
-        <CardContent className="pt-6">
+        </header>
+
+        <AnimatePresence>
           {mealPlanMessage && (
-            <div
-              className={`mb-6 p-4 rounded-xl text-center ${mealPlanMessage.includes("Error") ? "bg-red-50 text-red-600 border border-red-200" : "bg-teal-50 text-teal-600 border border-teal-200"}`}
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18 }}
+              className={`overflow-hidden border-b border-border/60 px-5 py-2.5 text-xs ${
+                isError
+                  ? "text-rose-700 dark:text-rose-400"
+                  : "text-muted-foreground"
+              }`}
             >
               {mealPlanMessage}
-            </div>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          <div className="space-y-8">
-            {meals.map((meal) => (
+        <div className="divide-y divide-border/60">
+          {hasAnyFoods ? (
+            meals.map((meal) => (
               <MealItem
                 key={meal.id}
                 meal={meal}
@@ -181,19 +197,49 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
                 replaceFood={replaceFood}
                 removeFood={removeFood}
               />
-            ))}
-          </div>
-        </CardContent>
-        <CardFooter className="flex flex-col">
-          <Separator className="mb-6" />
+            ))
+          ) : (
+            <EmptyMealsState onGenerate={generateMealPlan} />
+          )}
+        </div>
+
+        <div className="border-t border-border/60 bg-muted/30 px-5 py-4">
           <DailyTotals
             calculatedValues={calculatedValues}
             totalMacros={totalMacros}
           />
-        </CardFooter>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 };
+
+function EmptyMealsState({ onGenerate }: { onGenerate: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 px-5 py-12 text-center">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+        <Utensils
+          className="h-5 w-5 text-muted-foreground"
+          aria-hidden
+        />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-foreground">No meals yet</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Search and add foods above, or let us auto-fill a day for you.
+        </p>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={onGenerate}
+      >
+        <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+        Auto-fill
+      </Button>
+    </div>
+  );
+}
 
 export default MealPlanner;

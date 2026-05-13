@@ -1,13 +1,4 @@
-export interface Food {
-  name: string;
-  protein: number;
-  carbs: number;
-  fat: number;
-  calories: number;
-  mealTypes: string[];
-  category: string;
-  subCategory: string;
-}
+import type { Food } from "../components/macro/types";
 
 export const foodDatabase: Food[] = [
   {

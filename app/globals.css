@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap");
 @import "tailwindcss";
 
 @config "../tailwind.config.mjs";
@@ -9,65 +8,75 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
+    /* Linear/Vercel monochrome palette — light. */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 4%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 240 10% 4%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 240 10% 4%;
 
-    --primary: 174 75% 39%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 240 6% 10%;
+    --primary-foreground: 0 0% 98%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
 
-    --accent: 262 83% 58%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 174 75% 39%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 240 5% 65%;
 
-    --radius: 0.75rem;
+    /* Macro accents — desaturated, monochrome-friendly. */
+    --macro-protein: 200 80% 45%;
+    --macro-carbs: 35 90% 50%;
+    --macro-fat: 340 70% 55%;
+
+    --radius: 0.5rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 240 6% 6%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 240 6% 6%;
+    --popover-foreground: 0 0% 98%;
 
-    --primary: 174 75% 39%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 6% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 240 4% 12%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 240 4% 12%;
+    --muted-foreground: 240 5% 65%;
 
-    --accent: 262 83% 58%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 240 4% 14%;
+    --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 174 75% 39%;
+    --border: 240 4% 14%;
+    --input: 240 4% 14%;
+    --ring: 240 5% 65%;
+
+    --macro-protein: 200 75% 60%;
+    --macro-carbs: 35 90% 60%;
+    --macro-fat: 340 70% 65%;
   }
 }
 
@@ -75,64 +84,36 @@
   * {
     @apply border-border;
   }
+  html,
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-background text-foreground;
   }
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    @apply font-display font-semibold;
+  body {
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1,
+      "cv11" 1;
+  }
+  /* Use tabular numerals for any element that wants stable digit width. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    @apply bg-foreground/15;
   }
 }
 
-/* Custom styles for the macro calculator */
-.macro-card {
-  @apply relative overflow-hidden transition-all duration-300 hover:shadow-lg;
+/* Subtle scrollbar styling for a more "app-like" feel. */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
 }
 
-.macro-card::before {
-  @apply absolute inset-0 -translate-x-full;
-  content: "";
-  background: linear-gradient(
-    to right,
-    transparent 0%,
-    rgba(255, 255, 255, 0.2) 50%,
-    transparent 100%
-  );
-  animation: shimmer 2s infinite;
-}
-
-.macro-protein {
-  @apply border-teal-200 bg-teal-50 text-teal-600;
-}
-
-.macro-carbs {
-  @apply border-violet-200 bg-violet-50 text-violet-600;
-}
-
-.macro-fat {
-  @apply border-rose-200 bg-rose-50 text-rose-600;
-}
-
-.macro-calories {
-  @apply border-gray-200 bg-gray-50 text-gray-700;
-}
-
-.progress-protein {
-  @apply bg-teal-500;
-}
-
-.progress-carbs {
-  @apply bg-violet-500;
-}
-
-.progress-fat {
-  @apply bg-rose-500;
-}
-
-.progress-calories {
-  @apply bg-gray-500;
+/* Animated stripe for progress bars / skeletons. */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
