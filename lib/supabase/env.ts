@@ -23,3 +23,16 @@ export const SUPABASE_CONFIG =
 export function isSupabaseConfigured(): boolean {
   return SUPABASE_CONFIG !== null;
 }
+
+/** Server-only. Reads the service-role secret key — never imported from a
+ * client module, since the value bypasses RLS. Returns `null` when the env
+ * isn't set so callers (route handlers) can surface a configured-vs-not-
+ * configured state instead of crashing. */
+export function getSupabaseSecretConfig(): {
+  url: string;
+  secretKey: string;
+} | null {
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secretKey) return null;
+  return { url, secretKey };
+}

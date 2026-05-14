@@ -157,9 +157,14 @@ Notes:
 - Free-tier Supabase projects pause after a week of inactivity and
   auto-resume on the next request (one-time delay of a few seconds).
 - The **secret key** (`sb_secret_…`, formerly `service_role`) is
-  server-only — never expose it to the browser. The app doesn't use it
-  yet; an env slot is reserved in `.env.local.example` for future admin
-  operations that need to bypass RLS.
+  server-only — never expose it to the browser. It's read by
+  [`app/api/delete-account/route.ts`](app/api/delete-account/route.ts)
+  to call `auth.admin.deleteUser` when a user opts to delete their
+  account. If you leave `SUPABASE_SECRET_KEY` unset the rest of the app
+  still works; only the "Delete account" button is disabled (the route
+  returns 503 and the UI surfaces a "not configured" message). Add the
+  same secret to your Vercel project's env vars (Production + Preview)
+  before relying on the button in deployed builds.
 
 ## Scripts
 

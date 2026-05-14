@@ -359,3 +359,42 @@ describe("weight history", () => {
     expect(await listWeightEntries()).toHaveLength(0);
   });
 });
+
+describe("clearAllStores", () => {
+  beforeEach(async () => {
+    await freshDb();
+  });
+
+  it("empties every store in one shot", async () => {
+    const db = await freshDb();
+    await db.saveProfile(BASELINE_PROFILE);
+    await db.saveDailyLog("2026-05-13", SAMPLE_MEALS);
+    await db.saveWeightEntry("2026-05-13", 70);
+    await db.addCustomFood({
+      name: "Whey",
+      protein: 80,
+      carbs: 8,
+      fat: 2,
+      calories: 370,
+    });
+    await db.saveMealTemplate({
+      name: "Oats bowl",
+      foods: SAMPLE_MEALS[0].foods,
+    });
+
+    await db.clearAllStores();
+
+    expect(await db.getProfile()).toBeNull();
+    expect(await db.listDailyLogs()).toHaveLength(0);
+    expect(await db.listWeightEntries()).toHaveLength(0);
+    expect(await db.listCustomFoods()).toHaveLength(0);
+    expect(await db.listMealTemplates()).toHaveLength(0);
+  });
+
+  it("is idempotent — running on an already-empty DB is a no-op", async () => {
+    const { clearAllStores, listCustomFoods } = await freshDb();
+    await clearAllStores();
+    await clearAllStores();
+    expect(await listCustomFoods()).toHaveLength(0);
+  });
+});
