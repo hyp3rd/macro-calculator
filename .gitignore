@@ -35,7 +35,15 @@ yarn-error.log*
 
 # vercel
 .vercel
+!.env.local.example
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase CLI artifacts — link state, temp files, generated types. The
+# project_ref written by `supabase link` lives here and shouldn't be
+# committed (it's per-developer / per-deploy).
+/supabase/.temp/
+/supabase/.branches/
+/supabase/functions/_generated/

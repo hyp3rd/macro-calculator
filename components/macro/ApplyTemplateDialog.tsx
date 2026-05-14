@@ -69,7 +69,7 @@ export function ApplyTemplateDialog({
     };
   }, [open]);
 
-  async function handleDelete(id: number) {
+  async function handleDelete(id: string) {
     setTemplates((prev) => (prev ? prev.filter((t) => t.id !== id) : prev));
     try {
       await deleteMealTemplate(id);

@@ -17,6 +17,13 @@ const eslintConfig = [
       "@typescript-eslint/no-non-null-assertion": "warn",
     },
   },
+  {
+    // In test files, non-null assertions after an explicit null-check
+    // (e.g. `expect(x).not.toBeNull(); x!.foo`) are idiomatic and clearer
+    // than wrapping every line in an `if (x)`.
+    files: ["**/*.test.ts", "**/*.test.tsx", "tests/**/*.ts", "tests/**/*.tsx"],
+    rules: { "@typescript-eslint/no-non-null-assertion": "off" },
+  },
 ];
 
 export default eslintConfig;

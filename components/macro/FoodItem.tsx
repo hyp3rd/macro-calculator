@@ -27,7 +27,7 @@ interface FoodItemProps {
     suggestions: Food[];
     showSuggestions: boolean;
   };
-  replacementSuggestionsRef: React.RefObject<HTMLDivElement>;
+  replacementSuggestionsRef: React.RefObject<HTMLDivElement | null>;
   startEditingFood: (mealId: number, food: FoodItemType) => void;
   cancelEditing: () => void;
   handleEditPortionChange: (e: React.ChangeEvent<HTMLInputElement>) => void;

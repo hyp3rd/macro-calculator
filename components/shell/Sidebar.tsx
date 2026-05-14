@@ -26,7 +26,7 @@ const NAV: NavItem[] = [
   { key: "plan", label: "Meal Plan", icon: Utensils },
   { key: "progress", label: "Progress", icon: LineChart },
   { key: "foods", label: "My Foods", icon: Activity, badge: "Soon" },
-  { key: "settings", label: "Settings", icon: Settings, badge: "Soon" },
+  { key: "settings", label: "Settings", icon: Settings },
 ];
 
 type Props = { current: ViewKey; onSelect: (key: ViewKey) => void };

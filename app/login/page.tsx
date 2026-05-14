@@ -9,15 +9,18 @@ import { useState } from "react";
 import { ArrowLeft, Mail } from "lucide-react";
 import Link from "next/link";
 
+type Stage = { kind: "request" } | { kind: "verify"; email: string };
+
 export default function LoginPage() {
+  const [stage, setStage] = useState<Stage>({ kind: "request" });
   const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const configured = isSupabaseConfigured();
 
-  async function send() {
+  async function sendCode() {
     setError(null);
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
@@ -29,18 +32,66 @@ export default function LoginPage() {
       setError("Supabase isn't configured. See README → Supabase setup.");
       return;
     }
-    setSending(true);
+    setBusy(true);
     try {
-      const { error: signInError } = await supabase.auth.signInWithOtp({
+      // Same Supabase email contains both a magic link and a numeric OTP
+      // (length is configurable in Supabase: Auth → Providers → Email →
+      // OTP length; commonly 6 or 8). The code-paste path is cross-device-
+      // safe (no PKCE verifier on this browser required) and avoids the
+      // cookie-propagation failure modes of the link click.
+      const { error: e } = await supabase.auth.signInWithOtp({
         email: trimmed,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        options: {
+          shouldCreateUser: true,
+          // Click-the-link fallback: Supabase's verify endpoint will
+          // redirect here with `?code=…` after PKCE verification, and
+          // /auth/callback exchanges the code for a session. Only works
+          // when the user clicks the link on the same browser they
+          // requested it from (PKCE verifier lives in cookies on this
+          // origin). The numeric-code path below is the cross-device path.
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
-      if (signInError) throw signInError;
-      setSent(true);
+      if (e) throw e;
+      setCode("");
+      setStage({ kind: "verify", email: trimmed });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send link.");
+      setError(e instanceof Error ? e.message : "Failed to send code.");
     } finally {
-      setSending(false);
+      setBusy(false);
+    }
+  }
+
+  async function verifyCode() {
+    if (stage.kind !== "verify") return;
+    setError(null);
+    const token = code.trim();
+    // OTP length is configurable in Supabase (default 6, commonly 6 or 8).
+    // Accept any digits-only string in a sensible range; let Supabase be
+    // the authority on whether the value matches.
+    if (!/^\d{4,10}$/.test(token)) {
+      setError("Enter the numeric code from your email.");
+      return;
+    }
+    const supabase = getSupabaseBrowser();
+    if (!supabase) {
+      setError("Supabase isn't configured.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error: e } = await supabase.auth.verifyOtp({
+        email: stage.email,
+        token,
+        type: "email",
+      });
+      if (e) throw e;
+      // Hard navigation so the proxy sees the new session cookie on the
+      // very next request and rehydrates everywhere.
+      window.location.assign("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to verify code.");
+      setBusy(false);
     }
   }
 
@@ -58,8 +109,7 @@ export default function LoginPage() {
         <div className="space-y-1">
           <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
           <p className="text-sm text-muted-foreground">
-            Enter your email and we&apos;ll send you a one-click link to sign
-            in. No passwords, no accounts to remember.
+            We&apos;ll email you a one-time code. No passwords.
           </p>
         </div>
 
@@ -70,26 +120,11 @@ export default function LoginPage() {
           </div>
         )}
 
-        {sent ? (
-          <div
-            role="status"
-            className="space-y-3 rounded-md border border-border/60 bg-card px-4 py-4"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-              <Mail className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-medium">Check your email</p>
-            <p className="text-xs text-muted-foreground">
-              We sent a sign-in link to{" "}
-              <span className="font-medium text-foreground">{email}</span>. Open
-              it on this device to finish signing in.
-            </p>
-          </div>
-        ) : (
+        {stage.kind === "request" ? (
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              send();
+              sendCode();
             }}
             className="space-y-4"
           >
@@ -109,7 +144,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                disabled={sending || !configured}
+                disabled={busy || !configured}
               />
             </div>
             {error && (
@@ -123,10 +158,92 @@ export default function LoginPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={sending || !configured}
+              disabled={busy || !configured}
             >
-              {sending ? "Sending…" : "Email me a sign-in link"}
+              {busy ? "Sending…" : "Email me a code"}
             </Button>
+          </form>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              verifyCode();
+            }}
+            className="space-y-4"
+          >
+            <div
+              role="status"
+              className="space-y-3 rounded-md border border-border/60 bg-card px-4 py-3"
+            >
+              <div className="flex items-center gap-2">
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                <p className="text-sm font-medium">Check your email</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                We sent a sign-in email to{" "}
+                <span className="font-medium text-foreground">
+                  {stage.email}
+                </span>
+                . Paste the numeric code below, or click the link in the email
+                (works only on this browser). If you only see a link and no
+                code, the Supabase email template hasn&apos;t been customised
+                yet — see README → Supabase setup.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="code"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Code
+              </Label>
+              <Input
+                id="code"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoFocus
+                autoComplete="one-time-code"
+                maxLength={10}
+                value={code}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 10))
+                }
+                placeholder="••••••••"
+                className="font-mono tabular-nums text-center text-lg tracking-[0.3em]"
+                disabled={busy}
+              />
+            </div>
+
+            {error && (
+              <p
+                role="alert"
+                className="text-xs text-red-600"
+              >
+                {error}
+              </p>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={busy || code.length < 4}
+              >
+                {busy ? "Verifying…" : "Sign in"}
+              </Button>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                disabled={busy}
+                onClick={() => {
+                  setStage({ kind: "request" });
+                  setError(null);
+                }}
+              >
+                Use a different email
+              </button>
+            </div>
           </form>
         )}
 

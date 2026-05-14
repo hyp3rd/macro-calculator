@@ -49,8 +49,8 @@ interface MealPlannerProps {
     suggestions: Food[];
     showSuggestions: boolean;
   };
-  suggestionsRef: React.RefObject<HTMLDivElement>;
-  replacementSuggestionsRef: React.RefObject<HTMLDivElement>;
+  suggestionsRef: React.RefObject<HTMLDivElement | null>;
+  replacementSuggestionsRef: React.RefObject<HTMLDivElement | null>;
   setNewFood: (food: FoodItem) => void;
   setFoodSearch: (value: string) => void;
   handleFoodSearch: (e: React.ChangeEvent<HTMLInputElement>) => void;

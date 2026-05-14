@@ -8,6 +8,7 @@ import MealPlanner from "./components/macro/MealPlanner";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
 import { ProgressView } from "./components/macro/ProgressView";
 import { SaveTemplateDialog } from "./components/macro/SaveTemplateDialog";
+import { SettingsView } from "./components/macro/SettingsView";
 import {
   CalculatedValues,
   Food,
@@ -54,11 +55,8 @@ const DEFAULT_MEALS: Meal[] = [
 const MacroCalculator = () => {
   // Persisted profile. Defaults are used until the IndexedDB hydration
   // completes (a few ms after mount).
-  const {
-    profile: personalInfo,
-    setProfile: setPersonalInfo,
-    isHydrated: profileHydrated,
-  } = useProfile(DEFAULT_PROFILE);
+  const { profile: personalInfo, setProfile: setPersonalInfo } =
+    useProfile(DEFAULT_PROFILE);
 
   // Currently displayed day. `null` means "follow today" — useful so the
   // log live-updates across midnight when the user isn't pinned to a
@@ -67,12 +65,7 @@ const MacroCalculator = () => {
   const [explicitDate, setExplicitDate] = useState<string | null>(null);
   const selectedDate = explicitDate ?? today;
 
-  const {
-    meals,
-    setMeals,
-    isHydrated: dailyLogHydrated,
-  } = useDailyLog(selectedDate, DEFAULT_MEALS);
-  const isHydrated = profileHydrated && dailyLogHydrated;
+  const { meals, setMeals } = useDailyLog(selectedDate, DEFAULT_MEALS);
 
   // State for new food being added
   const [newFood, setNewFood] = useState<FoodItem>({
@@ -138,8 +131,8 @@ const MacroCalculator = () => {
   const [portionSize, setPortionSize] = useState(100); // Default 100g
 
   // Refs for dropdowns
-  const suggestionsRef = useRef<HTMLDivElement>(null!);
-  const replacementSuggestionsRef = useRef<HTMLDivElement>(null!);
+  const suggestionsRef = useRef<HTMLDivElement | null>(null);
+  const replacementSuggestionsRef = useRef<HTMLDivElement | null>(null);
 
   // Handle clicks outside suggestions dropdown
   useEffect(() => {
@@ -663,6 +656,8 @@ const MacroCalculator = () => {
       {view === "progress" && (
         <ProgressView targetCalories={calculatedValues.targetCalories} />
       )}
+
+      {view === "settings" && <SettingsView />}
 
       <CustomFoodForm
         open={customFoodOpen}

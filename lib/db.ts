@@ -7,7 +7,7 @@ import type {
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 
 const DB_NAME = "macro-calculator";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const STORE_CUSTOM_FOODS = "customFoods";
 const STORE_PROFILE = "profile";
@@ -19,10 +19,12 @@ const STORE_WEIGHT_HISTORY = "weightHistory";
  * profile in phase 2; this constant makes that explicit. */
 const PROFILE_KEY = "default";
 
-/** Stored custom food. Macros are per 100g; the runtime ID is assigned by
- * IndexedDB. createdAt drives most-recent ordering. */
+/** Stored custom food. Macros are per 100g; the id is a client-minted
+ * UUID so the same record can exist in IndexedDB and Supabase under the
+ * same key (no mapping needed for sync). createdAt drives most-recent
+ * ordering. */
 export type CustomFood = Omit<Food, "id" | "source"> & {
-  id: number;
+  id: string;
   createdAt: number;
 };
 
@@ -32,9 +34,10 @@ export type DailyLog = { date: string; meals: Meal[]; updatedAt: number };
 
 /** A reusable meal template — the user named some set of foods (e.g.
  * "Greek yogurt bowl") and can apply it to any meal slot on any day. The
- * `foods` array is captured with portions as-saved. */
+ * `foods` array is captured with portions as-saved. Id is a client-minted
+ * UUID shared with Supabase. */
 export type MealTemplate = {
-  id: number;
+  id: string;
   name: string;
   foods: FoodItem[];
   createdAt: number;
@@ -47,13 +50,13 @@ export type WeightEntry = { date: string; kg: number; recordedAt: number };
 
 interface MacroDB extends DBSchema {
   [STORE_CUSTOM_FOODS]: {
-    key: number;
+    key: string;
     value: CustomFood;
     indexes: { byName: string };
   };
   [STORE_PROFILE]: { key: string; value: PersonalInfo & { _key: string } };
   [STORE_DAILY_LOGS]: { key: string; value: DailyLog };
-  [STORE_MEAL_TEMPLATES]: { key: number; value: MealTemplate };
+  [STORE_MEAL_TEMPLATES]: { key: string; value: MealTemplate };
   [STORE_WEIGHT_HISTORY]: { key: string; value: WeightEntry };
 }
 
@@ -89,6 +92,26 @@ function getDB(): Promise<IDBPDatabase<MacroDB>> {
       if (oldVersion < 4) {
         db.createObjectStore(STORE_WEIGHT_HISTORY, { keyPath: "date" });
       }
+      // v4 → v5: customFoods + mealTemplates switch to client-minted UUID
+      // keys so the same row can exist in IndexedDB and Supabase under
+      // identical ids. Drop the autoIncrement stores and recreate. Any
+      // pre-existing local data is discarded — acceptable while we're
+      // still in development; before shipping to real users, this would
+      // need an in-place migration that rewrites keys.
+      if (oldVersion < 5) {
+        if (db.objectStoreNames.contains(STORE_CUSTOM_FOODS)) {
+          db.deleteObjectStore(STORE_CUSTOM_FOODS);
+        }
+        const customFoods = db.createObjectStore(STORE_CUSTOM_FOODS, {
+          keyPath: "id",
+        });
+        customFoods.createIndex("byName", "name", { unique: false });
+
+        if (db.objectStoreNames.contains(STORE_MEAL_TEMPLATES)) {
+          db.deleteObjectStore(STORE_MEAL_TEMPLATES);
+        }
+        db.createObjectStore(STORE_MEAL_TEMPLATES, { keyPath: "id" });
+      }
     },
   });
   return dbPromise;
@@ -96,19 +119,28 @@ function getDB(): Promise<IDBPDatabase<MacroDB>> {
 
 // ─── Custom foods ──────────────────────────────────────────────────────────
 
-/** Insert a custom food. Returns the assigned id. The `id` field is
- * omitted from the put payload — IndexedDB rejects an explicit `undefined`
- * key when the store has `keyPath` + `autoIncrement`, so let the store
- * generate the key itself. */
+function mintId(): string {
+  // crypto.randomUUID is available in secure contexts (https, localhost)
+  // since 2022; this app is React 19 + Next 16 so it's always available.
+  return crypto.randomUUID();
+}
+
+/** Insert a custom food. Mints a client-side UUID so the same id is
+ * shared with Supabase. */
 export async function addCustomFood(
   food: Omit<CustomFood, "id" | "createdAt">,
-): Promise<number> {
+): Promise<string> {
   const db = await getDB();
-  const id = await db.add(STORE_CUSTOM_FOODS, {
-    ...food,
-    createdAt: Date.now(),
-  } as CustomFood);
-  return id as number;
+  const id = mintId();
+  await db.put(STORE_CUSTOM_FOODS, { ...food, id, createdAt: Date.now() });
+  return id;
+}
+
+/** Upsert a custom food at a specific id. Used by the sync layer to write
+ * server-sourced rows into local storage without minting a fresh id. */
+export async function upsertCustomFood(food: CustomFood): Promise<void> {
+  const db = await getDB();
+  await db.put(STORE_CUSTOM_FOODS, food);
 }
 
 export async function listCustomFoods(): Promise<CustomFood[]> {
@@ -130,7 +162,7 @@ export async function searchCustomFoods(
     .map(customToFood);
 }
 
-export async function deleteCustomFood(id: number): Promise<void> {
+export async function deleteCustomFood(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_CUSTOM_FOODS, id);
 }
@@ -210,30 +242,37 @@ export async function deleteDailyLog(date: string): Promise<void> {
 
 // ─── Meal templates ────────────────────────────────────────────────────────
 
-/** Save a new meal template. The IndexedDB store auto-assigns the id —
- * we do not pass an explicit `undefined` (would crash the keyPath +
- * autoIncrement evaluation, same as customFoods). */
+/** Save a new meal template. Mints a client-side UUID. */
 export async function saveMealTemplate(
   template: Omit<MealTemplate, "id" | "createdAt" | "updatedAt">,
-): Promise<number> {
+): Promise<string> {
   const db = await getDB();
   const now = Date.now();
-  const id = await db.add(STORE_MEAL_TEMPLATES, {
+  const id = mintId();
+  await db.put(STORE_MEAL_TEMPLATES, {
     ...template,
+    id,
     createdAt: now,
     updatedAt: now,
-  } as MealTemplate);
-  return id as number;
+  });
+  return id;
 }
 
-/** All saved templates, newest first. */
+/** Upsert a template at a specific id. Used by the sync layer. */
+export async function upsertMealTemplate(
+  template: MealTemplate,
+): Promise<void> {
+  const db = await getDB();
+  await db.put(STORE_MEAL_TEMPLATES, template);
+}
+
 export async function listMealTemplates(): Promise<MealTemplate[]> {
   const db = await getDB();
   const rows = await db.getAll(STORE_MEAL_TEMPLATES);
   return rows.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function deleteMealTemplate(id: number): Promise<void> {
+export async function deleteMealTemplate(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_MEAL_TEMPLATES, id);
 }

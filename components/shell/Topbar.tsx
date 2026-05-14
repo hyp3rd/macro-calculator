@@ -1,6 +1,7 @@
 "use client";
 
 import type { ViewKey } from "./Sidebar";
+import { SyncStatusPill } from "./SyncStatusPill";
 import { ThemeToggle } from "./ThemeToggle";
 
 const LABELS: Record<ViewKey, string> = {
@@ -19,7 +20,8 @@ export function Topbar({ current }: Props) {
       <h1 className="text-sm font-semibold tracking-tight text-foreground">
         {LABELS[current]}
       </h1>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-3">
+        <SyncStatusPill />
         <ThemeToggle />
       </div>
     </header>
