@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { PersonalInfo } from "../../components/macro/types";
+import { CUISINES, PersonalInfo } from "../../components/macro/types";
+import { cn } from "../../lib/utils";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
@@ -14,7 +15,10 @@ import {
 
 interface PersonalInfoFormProps {
   personalInfo: PersonalInfo;
-  onPersonalInfoChange: (name: string, value: string | number | null) => void;
+  onPersonalInfoChange: (
+    name: string,
+    value: string | number | null | string[],
+  ) => void;
 }
 
 const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
@@ -184,6 +188,71 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
             </Select>
           </Field>
         </Row>
+
+        <div className="space-y-2">
+          <Label className="text-xs font-medium text-muted-foreground">
+            Cuisine preferences
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            Hint to the AI planner about what feels like home. Leave all empty
+            for &ldquo;no preference&rdquo;.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {CUISINES.map((cuisine) => {
+              const selected =
+                personalInfo.cuisinePreferences?.includes(cuisine) ?? false;
+              return (
+                <button
+                  key={cuisine}
+                  type="button"
+                  onClick={() => {
+                    const current = personalInfo.cuisinePreferences ?? [];
+                    const next = selected
+                      ? current.filter((c) => c !== cuisine)
+                      : [...current, cuisine];
+                    onPersonalInfoChange("cuisinePreferences", next);
+                  }}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                    selected
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border/60 text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+                  )}
+                  aria-pressed={selected}
+                >
+                  {cuisine}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label
+            htmlFor="allergies"
+            className="text-xs font-medium text-muted-foreground"
+          >
+            Allergies / foods to avoid
+          </Label>
+          <Input
+            id="allergies"
+            type="text"
+            value={(personalInfo.allergies ?? []).join(", ")}
+            onChange={(e) =>
+              onPersonalInfoChange(
+                "allergies",
+                e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              )
+            }
+            placeholder="peanuts, shellfish, gluten…"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Comma-separated. Hard filter — the AI must never include these.
+          </p>
+        </div>
       </Section>
 
       <Section

@@ -71,6 +71,46 @@ export type DietPreference =
   | "pescatarian"
   | "carnivore";
 
+/** Curated list of cuisines the user enjoys. Used as a soft hint to the
+ * AI meal planner — e.g. an "Italian + Mediterranean" pick produces
+ * different breakfasts than an "Korean + Japanese" pick. Empty array
+ * means "no preference, plan freely". */
+export type Cuisine =
+  | "Italian"
+  | "Mediterranean"
+  | "French"
+  | "Mexican"
+  | "American"
+  | "Chinese"
+  | "Japanese"
+  | "Korean"
+  | "Thai"
+  | "Vietnamese"
+  | "Indian"
+  | "Middle Eastern"
+  | "African"
+  | "Caribbean"
+  | "Eastern European";
+
+/** Closed list of cuisines used by the form and the AI prompt. */
+export const CUISINES: readonly Cuisine[] = [
+  "Italian",
+  "Mediterranean",
+  "French",
+  "Mexican",
+  "American",
+  "Chinese",
+  "Japanese",
+  "Korean",
+  "Thai",
+  "Vietnamese",
+  "Indian",
+  "Middle Eastern",
+  "African",
+  "Caribbean",
+  "Eastern European",
+] as const;
+
 export type PersonalInfo = {
   gender: Gender;
   age: number;
@@ -80,6 +120,14 @@ export type PersonalInfo = {
   goal: "lose" | "maintain" | "gain";
   dietType: "balanced" | "lowCarb" | "lowFat";
   dietPreference: DietPreference;
+  /** Cuisines the user enjoys. Soft hint to the AI planner; empty = no
+   * preference. Kept open-ended (string, not the Cuisine union) so old
+   * profiles with values we've since removed still round-trip. */
+  cuisinePreferences: string[];
+  /** Free-form list of allergens or ingredients the user can't / won't
+   * eat. The AI planner must filter these out hard. Examples: "peanuts",
+   * "shellfish", "celery", "gluten". */
+  allergies: string[];
   /** Target weight change rate in kg/week. Sign-less; the `goal` field
    * determines whether it's a deficit or surplus. Ignored when goal is
    * "maintain". 1 kg fat ≈ 7700 kcal → daily delta ≈ rate × 1100. */

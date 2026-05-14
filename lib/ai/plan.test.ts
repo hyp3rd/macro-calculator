@@ -125,4 +125,74 @@ describe("aiPlanToMeals", () => {
     expect(meals[0].foods[0].id).toBe(100);
     expect(meals[0].foods[1].id).toBe(101);
   });
+
+  // Defensive coverage: the AI is *forced* into submit_meal_plan via
+  // tool_choice on the last iteration, but it can still hand us a
+  // partial / malformed input. Empty meal slots > a 500 from the route.
+  it("tolerates a missing meals array (returns empty slots)", () => {
+    const meals = aiPlanToMeals(
+      {} as unknown as AiPlanShape,
+      ["Breakfast", "Lunch"],
+      catalog,
+    );
+    expect(meals).toHaveLength(2);
+    expect(meals[0].foods).toHaveLength(0);
+    expect(meals[1].foods).toHaveLength(0);
+  });
+
+  it("tolerates a non-array meals value", () => {
+    const meals = aiPlanToMeals(
+      { meals: null } as unknown as AiPlanShape,
+      ["Breakfast"],
+      catalog,
+    );
+    expect(meals[0].foods).toHaveLength(0);
+  });
+
+  it("tolerates a meal entry with missing foods array", () => {
+    const ai = {
+      meals: [{ name: "Breakfast" } as unknown as AiPlanShape["meals"][0]],
+    };
+    const meals = aiPlanToMeals(ai, ["Breakfast"], catalog);
+    expect(meals[0].foods).toHaveLength(0);
+  });
+
+  it("tolerates picks with missing or non-numeric portionGrams (clamps to safe minimum)", () => {
+    const ai = {
+      meals: [
+        {
+          name: "Breakfast",
+          foods: [
+            { name: "Oats" } as unknown as AiPlanShape["meals"][0]["foods"][0],
+            { name: "Olive Oil", portionGrams: "lots" as unknown as number },
+          ],
+        },
+      ],
+    };
+    const meals = aiPlanToMeals(ai, ["Breakfast"], catalog);
+    // Both foods made it in, with portions clamped from the bad inputs.
+    expect(meals[0].foods).toHaveLength(2);
+    expect(meals[0].foods[0].portionSize).toBeGreaterThanOrEqual(5);
+    expect(meals[0].foods[1].portionSize).toBeGreaterThanOrEqual(5);
+  });
+
+  it("tolerates picks with non-string name (silently dropped)", () => {
+    const ai = {
+      meals: [
+        {
+          name: "Breakfast",
+          foods: [
+            {
+              name: 42,
+              portionGrams: 100,
+            } as unknown as AiPlanShape["meals"][0]["foods"][0],
+            { name: "Oats", portionGrams: 50 },
+          ],
+        },
+      ],
+    };
+    const meals = aiPlanToMeals(ai, ["Breakfast"], catalog);
+    expect(meals[0].foods).toHaveLength(1);
+    expect(meals[0].foods[0].name).toBe("Oats");
+  });
 });

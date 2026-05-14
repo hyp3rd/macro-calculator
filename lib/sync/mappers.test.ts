@@ -25,6 +25,8 @@ const PROFILE: PersonalInfo = {
   goal: "maintain",
   dietType: "balanced",
   dietPreference: "omnivore",
+  cuisinePreferences: [],
+  allergies: [],
   weeklyRateKg: 0.5,
   manualTdee: null,
 };
@@ -37,6 +39,22 @@ describe("profile mappers", () => {
     // Adding the updated_at the DB would assign…
     const fullRow = { ...row, updated_at: "2026-05-13T10:00:00Z" };
     expect(profileFromRow(fullRow)).toEqual(PROFILE);
+  });
+
+  it("preserves cuisinePreferences and allergies through the JSONB blob", () => {
+    // Regression cover for the new fields: profile rows are stored as
+    // JSONB so adding fields shouldn't require schema changes — but it
+    // also means it's silently easy to drop a field if a mapper ever
+    // gets explicit. Pin the round-trip.
+    const profile: PersonalInfo = {
+      ...PROFILE,
+      cuisinePreferences: ["Italian", "Japanese", "Korean"],
+      allergies: ["peanuts", "shellfish"],
+    };
+    const row = profileToRow(USER, profile);
+    const back = profileFromRow({ ...row, updated_at: "2026-05-13T10:00:00Z" });
+    expect(back.cuisinePreferences).toEqual(["Italian", "Japanese", "Korean"]);
+    expect(back.allergies).toEqual(["peanuts", "shellfish"]);
   });
 });
 

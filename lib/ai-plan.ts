@@ -7,6 +7,10 @@ export type AiPlanRequest = {
   dietPreference: DietPreference;
   mealNames: string[];
   customFoods: Food[];
+  /** Cuisines the user enjoys. Empty = no preference. */
+  cuisinePreferences: string[];
+  /** Hard-filter list of allergens / foods to avoid. */
+  allergies: string[];
 };
 
 /** Result of asking the AI for a meal plan. `kind: "ok"` always carries
