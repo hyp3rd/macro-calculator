@@ -11,6 +11,7 @@ import {
 import { deleteMealTemplate, listMealTemplates } from "@/lib/db";
 import type { MealTemplate } from "@/lib/db";
 import { reportStorageError } from "@/lib/storage-status";
+import { bumpPending } from "@/lib/sync-status";
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 
@@ -73,6 +74,7 @@ export function ApplyTemplateDialog({
     setTemplates((prev) => (prev ? prev.filter((t) => t.id !== id) : prev));
     try {
       await deleteMealTemplate(id);
+      bumpPending();
     } catch (err) {
       reportStorageError(err);
       // Re-fetch to recover from a failed delete.

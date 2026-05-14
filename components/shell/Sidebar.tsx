@@ -25,7 +25,7 @@ const NAV: NavItem[] = [
   { key: "calculator", label: "Calculator", icon: Calculator },
   { key: "plan", label: "Meal Plan", icon: Utensils },
   { key: "progress", label: "Progress", icon: LineChart },
-  { key: "foods", label: "My Foods", icon: Activity, badge: "Soon" },
+  { key: "foods", label: "My Foods", icon: Activity },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 

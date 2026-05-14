@@ -20,6 +20,7 @@ const BASELINE_PROFILE: PersonalInfo = {
   activityLevel: "moderate",
   goal: "maintain",
   dietType: "balanced",
+  dietPreference: "omnivore",
   weeklyRateKg: 0.5,
   manualTdee: null,
 };

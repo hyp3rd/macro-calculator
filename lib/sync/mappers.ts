@@ -2,7 +2,7 @@
  * shapes. The local types use camelCase + epoch ms; Postgres uses
  * snake_case + ISO timestamps. We keep these as plain functions so they
  * can be unit-tested without spinning up Supabase. */
-import type { Meal, PersonalInfo } from "@/components/macro/types";
+import type { FoodKind, Meal, PersonalInfo } from "@/components/macro/types";
 import type { CustomFood, DailyLog, MealTemplate, WeightEntry } from "@/lib/db";
 
 // ─── Profile ───────────────────────────────────────────────────────────────
@@ -91,9 +91,29 @@ export type CustomFoodRow = {
   brand: string | null;
   category: string | null;
   sub_category: string | null;
+  /** Nullable until the user classifies; client treats null as omnivore-only. */
+  diet_kind: string | null;
   created_at: string;
   updated_at: string;
 };
+
+/** The set of strings stored in `diet_kind`. Mirrors the FoodKind union;
+ * keeping it here as a Set lets us validate values read back from Supabase
+ * (e.g. a hand-edit in the dashboard) without trusting the row blindly. */
+const FOOD_KIND_VALUES = new Set<FoodKind>([
+  "land-meat",
+  "seafood",
+  "egg",
+  "dairy",
+  "honey",
+  "plant",
+]);
+
+function parseDietKind(value: string | null): FoodKind | undefined {
+  if (value && FOOD_KIND_VALUES.has(value as FoodKind))
+    return value as FoodKind;
+  return undefined;
+}
 
 export function customFoodToRow(
   userId: string,
@@ -110,6 +130,7 @@ export function customFoodToRow(
     brand: food.brand ?? null,
     category: food.category ?? null,
     sub_category: food.subCategory ?? null,
+    diet_kind: food.dietKind ?? null,
     created_at: new Date(food.createdAt).toISOString(),
   };
 }
@@ -125,6 +146,7 @@ export function customFoodFromRow(row: CustomFoodRow): CustomFood {
     brand: row.brand ?? undefined,
     category: row.category ?? undefined,
     subCategory: row.sub_category ?? undefined,
+    dietKind: parseDietKind(row.diet_kind),
     createdAt: Date.parse(row.created_at),
   };
 }

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveMealTemplate } from "@/lib/db";
+import { bumpPending } from "@/lib/sync-status";
 import { useState } from "react";
 
 type Props = {
@@ -77,6 +78,7 @@ function SaveTemplateForm({
     setError(null);
     try {
       await saveMealTemplate({ name: name.trim(), foods });
+      bumpPending();
       onSaved();
       onClose();
     } catch (e) {

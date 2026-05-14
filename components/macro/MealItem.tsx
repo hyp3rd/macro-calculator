@@ -2,6 +2,11 @@
 
 import React from "react";
 import { BookmarkPlus, MoreHorizontal, Plus } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import {
   Food,
   FoodItem as FoodItemType,
@@ -72,8 +77,23 @@ const MealItem: React.FC<MealItemProps> = ({
     meal.foods.reduce((s, f) => s + f.calories, 0),
   );
 
+  // Stable per-row ids matching FoodItem's `${mealId}:${food.id}`. dnd-kit
+  // needs to see each meal as its own sortable container so cross-meal
+  // drops work via the meal-level `data.mealId`.
+  const sortableIds = meal.foods.map((f) => `${meal.id}:${f.id}`);
+  // Droppable so an empty meal (no sortable items) can still receive a
+  // drop. The id is the meal block; the data tells onDragEnd where it
+  // landed.
+  const { setNodeRef, isOver } = useDroppable({
+    id: `meal-${meal.id}`,
+    data: { mealId: meal.id, type: "meal" },
+  });
+
   return (
-    <div className="px-5 py-4">
+    <div
+      ref={setNodeRef}
+      className={`px-5 py-4 transition-colors ${isOver ? "bg-accent/40" : ""}`}
+    >
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold tracking-tight text-foreground">
           {meal.name}
@@ -119,14 +139,22 @@ const MealItem: React.FC<MealItemProps> = ({
       </div>
 
       {meal.foods.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border/60 px-4 py-3 text-center text-xs text-muted-foreground">
-          No foods added yet
+        <p
+          className={`rounded-md border border-dashed px-4 py-3 text-center text-xs text-muted-foreground ${
+            isOver ? "border-foreground/40" : "border-border/60"
+          }`}
+        >
+          {isOver ? "Drop here" : "No foods added yet"}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-border/60">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <th
+                  className="w-8 px-1 py-2"
+                  aria-hidden
+                />
                 <th className="px-3 py-2 text-left">Food</th>
                 <th className="px-3 py-2 text-center">Portion</th>
                 <th className="px-3 py-2 text-center">P</th>
@@ -136,27 +164,32 @@ const MealItem: React.FC<MealItemProps> = ({
                 <th className="px-3 py-2 text-right" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/60">
-              {meal.foods.map((food) => (
-                <FoodItem
-                  key={food.id}
-                  food={food}
-                  mealId={meal.id}
-                  editingFood={editingFood}
-                  replacingFood={replacingFood}
-                  replacementSuggestionsRef={replacementSuggestionsRef}
-                  startEditingFood={startEditingFood}
-                  cancelEditing={cancelEditing}
-                  handleEditPortionChange={handleEditPortionChange}
-                  saveEditedPortion={saveEditedPortion}
-                  startReplacingFood={startReplacingFood}
-                  cancelReplacing={cancelReplacing}
-                  handleReplacementSearch={handleReplacementSearch}
-                  replaceFood={replaceFood}
-                  removeFood={removeFood}
-                />
-              ))}
-            </tbody>
+            <SortableContext
+              items={sortableIds}
+              strategy={verticalListSortingStrategy}
+            >
+              <tbody className="divide-y divide-border/60">
+                {meal.foods.map((food) => (
+                  <FoodItem
+                    key={food.id}
+                    food={food}
+                    mealId={meal.id}
+                    editingFood={editingFood}
+                    replacingFood={replacingFood}
+                    replacementSuggestionsRef={replacementSuggestionsRef}
+                    startEditingFood={startEditingFood}
+                    cancelEditing={cancelEditing}
+                    handleEditPortionChange={handleEditPortionChange}
+                    saveEditedPortion={saveEditedPortion}
+                    startReplacingFood={startReplacingFood}
+                    cancelReplacing={cancelReplacing}
+                    handleReplacementSearch={handleReplacementSearch}
+                    replaceFood={replaceFood}
+                    removeFood={removeFood}
+                  />
+                ))}
+              </tbody>
+            </SortableContext>
           </table>
         </div>
       )}

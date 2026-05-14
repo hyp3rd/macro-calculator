@@ -10,6 +10,7 @@ const baseline: PersonalInfo = {
   activityLevel: "moderate",
   goal: "maintain",
   dietType: "balanced",
+  dietPreference: "omnivore",
   weeklyRateKg: 0,
 };
 
@@ -109,6 +110,20 @@ describe("computeMacros", () => {
     const r = computeMacros({ ...baseline, gender: "female" });
     // Male BMR was 1649, female differs by -166 (male: +5 vs female: -161).
     expect(r.bmr).toBe(1483);
+  });
+
+  it("uses the pessimistic (female) formula for non-binary / prefer-not-to-say", () => {
+    const female = computeMacros({ ...baseline, gender: "female" });
+    const nb = computeMacros({ ...baseline, gender: "nonbinary" });
+    const undisclosed = computeMacros({
+      ...baseline,
+      gender: "preferNotToSay",
+    });
+    // All three non-male options must match: same BMR → same TDEE → same
+    // targets. Lower-estimate path keeps calorie targets conservative.
+    expect(nb.bmr).toBe(female.bmr);
+    expect(undisclosed.bmr).toBe(female.bmr);
+    expect(nb.targetCalories).toBe(female.targetCalories);
   });
 
   it("uses manualTdee when provided (overrides BMR × activity)", () => {

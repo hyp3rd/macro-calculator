@@ -1,45 +1,29 @@
-include .project-settings.env
-
 # MacroCalculator — Makefile is the quality-gate contract.
 #
 # AGENTS.md §4: every target listed here must be wired and
 # green before declaring a task done. `make ci` runs the full
-# gate sequence (fmt-check + lint + typecheck + test + sec +
-# build) and is what CI invokes.
-
-REPO_PREFIX ?= github.com/hyp3rd/macro-calculator
-NODE_VERSION ?= 25
-SMOKE_TESTS_PATH ?=./scripts/tests/smoke/
+# gate sequence (pre-commit + fmt-check + lint + typecheck +
+# test + sec + build) and is what should pass before any merge.
 
 NPM ?= npm
 NPX ?= npx
-
-# All targets are PHONY — none of them produce a tracked
-# artefact. Splitting them out at the bottom keeps the rule
-# bodies readable.
 
 # ---- Help ------------------------------------------------------------
 help: ## Print available targets and their descriptions.
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 # ---- Development -----------------------------------------------------
-# `make build` requires no env stubs: src/env/server.ts skips
-# strict validation during NEXT_PHASE=phase-production-build,
-# which Next sets for us. Runtime (operator deploy) still
-# enforces validation on each fresh server process — the build
-# artifact is JS source, not a snapshot of module exports.
-
 dev: ## Run the dev server (next dev) on :3000.
 	$(NPM) run dev
 
-build: ## Production build (next build, standalone output).
+build: ## Production build (next build).
 	$(NPM) run build
 
 start: ## Run the production server (requires a prior `make build`).
 	$(NPM) run start
 
 # ---- Quality gates ---------------------------------------------------
-fmt: lint ## Auto-format with Prettier.
+fmt: ## Auto-format with Prettier.
 	$(NPM) run format
 
 fmt-check: ## Verify Prettier formatting (CI-friendly; non-zero on diff).
@@ -48,7 +32,7 @@ fmt-check: ## Verify Prettier formatting (CI-friendly; non-zero on diff).
 lint: ## Run ESLint flat config.
 	$(NPM) run lint
 
-lint-fix: ## ESLint with --fix.
+lint-fix: ## ESLint with --fix, then re-format.
 	$(NPM) run lint:fix
 	$(NPM) run format
 
@@ -61,7 +45,7 @@ test: ## Vitest unit + component tests.
 test-watch: ## Vitest in watch mode (interactive).
 	$(NPX) vitest
 
-e2e: ## Playwright end-to-end suite.
+e2e: ## Playwright end-to-end suite (auto-starts the dev server).
 	$(NPX) playwright test
 
 # `npm audit` exit codes: 1 on findings >= --audit-level threshold.
@@ -71,19 +55,19 @@ e2e: ## Playwright end-to-end suite.
 sec: ## npm audit for high+ severity findings.
 	$(NPM) audit --audit-level=high
 
-pre-commit:
-	@if command -v pyenv >/dev/null 2>&1; then \
-		eval "$$(pyenv init -)" && \
-		pyenv activate pre-commit && \
-		pre-commit run -a trailing-whitespace && \
-		pre-commit run -a end-of-file-fixer && \
-		pre-commit run -a markdownlint && \
-		pre-commit run -a yamllint && \
-		pre-commit run -a cspell && \
-		pre-commit run -a cspell; \
-	else \
-		echo "pyenv command not found"; \
+# Subset of hooks from .pre-commit-config.yaml: the cheap, no-Docker
+# ones. `hadolint-docker` needs Docker running and `gitleaks` runs in
+# its own GitHub Action, so we don't repeat them here.
+pre-commit: ## Run a curated subset of pre-commit hooks (requires `pre-commit` on PATH).
+	@if ! command -v pre-commit >/dev/null 2>&1; then \
+		echo "pre-commit not found on PATH. Install via 'pipx install pre-commit' (or 'pip install --user pre-commit')."; \
+		exit 1; \
 	fi
+	pre-commit run -a trailing-whitespace
+	pre-commit run -a end-of-file-fixer
+	pre-commit run -a markdownlint
+	pre-commit run -a yamllint
+	pre-commit run -a cspell
 
 # ---- Composite -------------------------------------------------------
 # Order matters: format-check first (instant), lint next
@@ -92,6 +76,5 @@ pre-commit:
 # typecheck already errored.
 ci: pre-commit fmt-check lint typecheck test sec build ## Run every quality gate.
 
-
-.PHONY: help dev build start fmt fmt-check lint lint-fix typecheck \
-	test test-watch e2e sec ci
+.PHONY: build ci dev e2e fmt fmt-check help lint lint-fix \
+	pre-commit sec start test test-watch typecheck
