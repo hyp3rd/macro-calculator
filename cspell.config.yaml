@@ -16,6 +16,7 @@ words:
   - cmdk
   - Cramer
   - Cramer's
+  - creds
   - Dedup
   - desaturated
   - Elipssis
@@ -34,9 +35,11 @@ words:
   - Mifflin
   - nums
   - openfoodfacts
+  - passwordless
   - pgcrypto
   - PKCE
   - plpgsql
+  - sparkline
   - summarise
   - supabase
   - TDEE

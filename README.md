@@ -1,7 +1,9 @@
 # Macro Calculator
 
-A personal macro calculator and meal planner. Single-page Next.js app, no
-backend, no accounts — your custom foods live in your browser's IndexedDB.
+A personal macro calculator, meal planner, and weight-tracking journal.
+Next.js app with a Supabase-backed optional account for multi-device sync —
+or run it fully local in **guest mode** and everything lives in your
+browser's IndexedDB.
 
 ## What it does
 
@@ -14,12 +16,23 @@ backend, no accounts — your custom foods live in your browser's IndexedDB.
   / Snacks); auto-fill a day that hits your macro targets via a 3×3 linear
   solve over a protein-dominant / carb-dominant / fat-dominant food triplet,
   with portions snapped to 5 g.
+- **Daily logs** — every day's meals are persisted by `YYYY-MM-DD` key, with
+  a date navigator to browse history without losing today's in-flight state.
+- **Meal templates** — save any logged meal as a reusable template ("Greek
+  yogurt bowl") and apply it to any meal slot on any day.
+- **Weight history + progress** — log weigh-ins, see a sparkline of recent
+  weight and a macro-adherence chart against your daily targets.
 - **Food search** — three sources merged into one box:
-  - **Built-in**: a curated set in `data/food-database.ts`
+  - **Built-in**: a curated set in [`data/food-database.ts`](data/food-database.ts)
   - **My foods**: custom foods you saved (IndexedDB, persists across reloads)
   - **Open Food Facts**: live search via a same-origin proxy at
     `/api/off-search` (caches 60 s at the edge). "Save to my foods" copies an
     OFF result into IndexedDB so it's available offline next time.
+- **Account (optional)** — passwordless email OTP sign-in via Supabase.
+  Once signed in, profile + logs + weight history + custom foods + meal
+  templates sync across devices on each sign-in (one-shot reconcile, not a
+  live channel). Includes change-email, export-as-JSON, and a
+  type-your-email-to-confirm delete-account flow.
 
 ## Stack
 
@@ -32,6 +45,7 @@ backend, no accounts — your custom foods live in your browser's IndexedDB.
 | Motion        | [`motion`](https://motion.dev) (Framer Motion's successor)   |
 | UI primitives | shadcn/ui (Radix)                                            |
 | Local storage | [`idb`](https://github.com/jakearchibald/idb) over IndexedDB |
+| Auth + sync   | Supabase (Postgres + RLS, `@supabase/ssr`, email OTP)        |
 | Unit tests    | Vitest                                                       |
 | E2E tests     | Playwright (Chromium)                                        |
 | Lint          | ESLint 9 flat config via `eslint-config-next`                |
@@ -57,9 +71,9 @@ sync, follow Supabase setup below.
 
 ### Supabase setup (auth + sync, optional)
 
-The app uses Supabase as the cloud backend for auth (magic link) and
-multi-device sync. Locally it runs fine without it — sign-in is disabled
-and the app stays on IndexedDB.
+The app uses Supabase as the cloud backend for auth (passwordless email
+OTP — paste the code, no link) and multi-device sync. Locally it runs
+fine without it — sign-in is disabled and the app stays on IndexedDB.
 
 1. Create a project at <https://supabase.com> (free tier is enough).
 1. In the Supabase dashboard, go to **Project Settings → API Keys** and
@@ -186,38 +200,94 @@ typecheck test sec build` and is what should pass before any merge.
 
 ## Tests
 
-- `lib/macros.test.ts` — TDEE math, deficit/surplus symmetry, rate cap,
-  BMR/1200 floor, manual TDEE override path.
-- `lib/meal-planner.test.ts` — `det3` / `solve3x3`, near-singular rejection,
-  `planMeal` hits targets within tolerance, custom-foods inclusion, full-day
-  `planDay` summary.
-- `lib/db.test.ts` — `addCustomFood` against `fake-indexeddb`, including a
-  regression for the `keyPath` + `autoIncrement` + `id: undefined` crash.
-- `tests/e2e/smoke.spec.ts` — render, sidebar nav, food search, Auto-fill.
+- [`lib/macros.test.ts`](lib/macros.test.ts) — TDEE math, deficit/surplus
+  symmetry, rate cap, BMR/1200 floor, manual TDEE override path.
+- [`lib/meal-planner.test.ts`](lib/meal-planner.test.ts) — `det3` /
+  `solve3x3`, near-singular rejection, `planMeal` hits targets within
+  tolerance, custom-foods inclusion, full-day `planDay` summary.
+- [`lib/db.test.ts`](lib/db.test.ts) — IDB round-trips for every store
+  (profile, daily logs, weight history, custom foods, meal templates),
+  the `addCustomFood` regression for `keyPath` + `autoIncrement` +
+  `id: undefined`, plus `clearAllStores` for the delete-account flow.
+- [`lib/sync/mappers.test.ts`](lib/sync/mappers.test.ts) — pure
+  camelCase ↔ snake_case + epoch ms ↔ ISO mapping for each table row.
+- [`lib/storage-status.test.ts`](lib/storage-status.test.ts) — IndexedDB
+  availability detection (covers private-mode browsers).
+- [`hooks/use-today.test.ts`](hooks/use-today.test.ts) and
+  [`hooks/use-daily-log.test.ts`](hooks/use-daily-log.test.ts) — date
+  rollover at midnight and IDB hydration flow.
+- [`tests/e2e/smoke.spec.ts`](tests/e2e/smoke.spec.ts) — render, sidebar
+  nav, food search, Auto-fill. Does not yet exercise the auth surface.
 
 ## Architecture
 
-Single-page client app. State lives in `macro-calculator.tsx` (the page
-root) and is wired into a sidebar-driven `AppShell`. The pure calculation
-and planning logic is extracted to `lib/macros.ts` and `lib/meal-planner.ts`
-so it's testable in isolation.
+Single-page client app. View state lives in [`macro-calculator.tsx`](macro-calculator.tsx)
+(the page root) and is wired into a sidebar-driven `AppShell`. Persistence
+is layered:
+
+1. **IndexedDB (always)** — [`lib/db.ts`](lib/db.ts) is the source of truth
+   on each device. Five stores: `profile`, `dailyLogs`, `weightHistory`,
+   `customFoods`, `mealTemplates`. All entity ids are client-minted UUIDs
+   so the same row can exist locally and on the server under the same key.
+1. **Supabase (when signed in)** — same five tables, RLS-scoped to the
+   owner. [`lib/sync/`](lib/sync/) reconciles IDB ↔ Supabase once per
+   sign-in (push every local row via upsert, then pull every remote row
+   into IDB). Not a live channel — manual re-sync via the topbar pill.
+1. **Auth cookies** — refreshed on every request by [`proxy.ts`](proxy.ts)
+   (Next.js 16 renamed `middleware` → `proxy`) so the session stays valid
+   across page loads.
+
+Pure logic (`lib/macros.ts`, `lib/meal-planner.ts`, `lib/sync/mappers.ts`)
+is kept free of React and IDB so it's testable in isolation.
 
 ```text
+proxy.ts                          # Next.js 16 proxy — refreshes Supabase session cookies
 app/
-  api/off-search/route.ts   # Same-origin proxy to OFF Search-a-licious
-  globals.css               # Monochrome design tokens (light/dark)
-  layout.tsx                # ThemeProvider, fonts
+  layout.tsx                      # ThemeProvider, fonts, mounts SyncManager
+  page.tsx                        # Single-page mount point
+  globals.css                     # Monochrome design tokens (light/dark)
+  login/page.tsx                  # Passwordless email-OTP sign-in
+  auth/callback/route.ts          # PKCE code → session exchange
+  auth/confirm/route.ts           # Magic-link verify (fallback path)
+  api/off-search/route.ts         # Same-origin proxy to OFF Search-a-licious
+  api/delete-account/route.ts    # Service-role admin.deleteUser (server-only)
 components/
-  shell/                    # AppShell, Sidebar, Topbar, ThemeToggle, NumberTicker
-  macro/                    # Calculator + Meal Plan screens
-  ui/                       # shadcn primitives
-hooks/use-food-search.ts    # Merged debounced search
+  shell/                          # AppShell, Sidebar, Topbar, UserMenu,
+                                  #   SyncManager, SyncStatusPill, DateNavigator,
+                                  #   StorageBanner, MiniLineChart, NumberTicker,
+                                  #   ThemeToggle
+  macro/                          # Calculator, Meal Plan, ProgressView,
+                                  #   SettingsView (account + export + delete),
+                                  #   Add/Edit/Apply/Save dialogs, FoodItem,
+                                  #   MealItem, PersonalInfoForm, DailyTotals
+  ui/                             # shadcn primitives (Button, Input, AlertDialog,…)
+hooks/
+  use-user.ts                     # Supabase auth subscription
+  use-profile.ts                  # IDB-hydrated profile state
+  use-daily-log.ts                # IDB-hydrated day log state
+  use-food-search.ts              # Debounced merged search (builtin + custom + OFF)
+  use-today.ts                    # Live today-date, rolls at midnight
+  use-mobile.tsx                  # Breakpoint helper
 lib/
-  db.ts                     # IndexedDB wrapper (idb)
-  macros.ts                 # BMR, TDEE, target calories
-  meal-planner.ts           # 3×3 Cramer-based portion solver
-  openfoodfacts.ts          # Client for /api/off-search
-data/food-database.ts       # Built-in foods
+  db.ts                           # IndexedDB wrapper (idb)
+  macros.ts                       # BMR, TDEE, target calories
+  meal-planner.ts                 # 3×3 Cramer-based portion solver
+  openfoodfacts.ts                # Client for /api/off-search
+  export.ts                       # Bundle IDB → downloadable JSON
+  storage-status.ts               # IDB availability detection
+  sync-status.ts                  # Sync pill global store (useSyncExternalStore)
+  sync/index.ts                   # runInitialSync, triggerSync (push + pull)
+  sync/mappers.ts                 # camelCase ↔ snake_case row mappers
+  supabase/
+    env.ts                        # NEXT_PUBLIC_ + server-only secret config
+    client.ts                     # Browser singleton (publishable key)
+    server.ts                     # Cookie-bound server client
+    proxy.ts                      # Session refresh used by proxy.ts
+data/food-database.ts             # Built-in foods
+supabase/
+  config.toml                     # CLI config
+  migrations/0001_init.sql        # Tables + RLS for all five stores
+tests/e2e/smoke.spec.ts           # Playwright smoke
 ```
 
 ## Open Food Facts
@@ -232,22 +302,68 @@ which:
 - Adds `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`
 - Returns `502` on upstream failure
 
+## Deployment
+
+The app is a standard Next.js 16 deploy on Vercel; no special build step.
+Two things that have bitten this repo and aren't obvious:
+
+- **`NEXT_PUBLIC_*` env vars are inlined at build time, not read at
+  runtime.** If you add or change `NEXT_PUBLIC_SUPABASE_URL` or
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in Vercel, you must **redeploy
+  with the build cache disabled** for the new values to land in the
+  client bundle. Symptom of a stale build: the deployed `/login` page
+  says "Supabase isn't configured for this build". Verify by viewing
+  source on `/login` and searching for `supabase.co` — if it's missing,
+  the env wasn't in the build.
+- **Set env vars for the Production environment** (Vercel checkboxes
+  Production / Preview / Development). Custom domains serve the
+  Production deployment, so a var that's only ticked for Preview won't
+  reach your `*.app` hostname.
+- **Supabase URL configuration is strict-matched.** Each domain you
+  serve from needs entries in Supabase Dashboard → Authentication →
+  URL Configuration:
+  - **Site URL** — primary host (`https://your-domain.app`)
+  - **Redirect URLs** — `https://your-domain.app/auth/callback`,
+    `https://your-domain.app/auth/confirm`, plus the localhost and
+    preview-deployment equivalents you still test from.
+    Without these the OTP/magic-link flow will reject the callback even
+    if the env vars are correct.
+- **Server-only `SUPABASE_SECRET_KEY`** (no `NEXT_PUBLIC_` prefix) must
+  also be in Vercel for `/api/delete-account` to function. Leave it
+  unset and the rest of the app works fine — the Delete account button
+  just shows a "not configured" message.
+
 ## Roadmap
 
 Done:
 
-- Phase 1 — visual / layout revamp, theme, motion, sidebar nav.
+- **Phase 1** — visual / layout revamp, theme, motion, sidebar nav.
+- **Phase 2** — Profile + meal-log persistence in IndexedDB.
+- **Phase 3** — Daily-log history (date navigator), saved meal templates,
+  weight history, progress charts (sparkline + macro-adherence).
+- **Phase 4** — Supabase backend: email-OTP auth, Postgres schema with RLS,
+  one-shot push/pull sync on sign-in, manual re-sync, automated migrations
+  via the Supabase CLI + GitHub Actions.
+- **Phase 5 (account management)** — Change email, export-as-JSON,
+  delete-account (cascades server-side via FK, wipes IDB locally).
 
-Next:
+Possibly next (not committed, in rough priority order):
 
-- Phase 2 — Profile data model + persistence. `personalInfo`, meal log, and
-  weight history move from React state into IndexedDB (extending what
-  `lib/db.ts` already does for custom foods).
-- Phase 3 — Saved meal templates, daily log history, progress charts.
+- **Defensive sync** — 60s timeout + `AbortSignal` on every Supabase call
+  inside `runInitialSync` so an upstream hang turns into "Sync error"
+  rather than an indefinite spinner.
+- **Auth + sync E2E coverage** — Playwright spec that signs in, asserts
+  the sync pill cycles to "Synced", signs out. Gated on env so it skips
+  locally without creds.
+- **Change-email via OTP code** — match the sign-in UX. Today it uses
+  Supabase's confirmation link, which is fragile cross-device for the
+  same reason we abandoned PKCE links at sign-in.
+- **JSON import** — the dual of `lib/export.ts`. Currently you can take
+  your data out; you can't put it back in.
 
 ## Status
 
-`make ci` green: lint 0, tsc 0, 28 unit tests, build, security audit. 3
-Playwright smoke tests pass against the dev server.
+`make ci` green: lint 0, tsc 0, **73 unit tests**, build, security audit.
+3 Playwright smoke tests pass against the dev server.
 
 No LICENSE file present in the repo at the moment.
