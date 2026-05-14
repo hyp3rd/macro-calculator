@@ -1,9 +1,21 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from "@/hooks/use-user";
+import { clearAllStores } from "@/lib/db";
 import { buildExport, downloadExport } from "@/lib/export";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { useState } from "react";
@@ -13,6 +25,7 @@ import {
   LogOut,
   Mail,
   ShieldCheck,
+  Trash2,
   UserCircle2,
 } from "lucide-react";
 import Link from "next/link";
@@ -168,13 +181,12 @@ export function SettingsView() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-border/60 bg-card px-5 py-4">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          <strong className="text-foreground">Coming next:</strong> delete
-          account. Today everything you save lives in Supabase (when signed in)
-          plus IndexedDB on this device.
-        </p>
-      </section>
+      {user && (
+        <DeleteAccountSection
+          userEmail={user.email ?? null}
+          configured={!isUnconfigured}
+        />
+      )}
     </div>
   );
 }
@@ -355,5 +367,149 @@ function Row({
         <p className="mt-0.5 text-sm font-medium text-foreground">{value}</p>
       </div>
     </div>
+  );
+}
+
+function DeleteAccountSection({
+  userEmail,
+  configured,
+}: {
+  userEmail: string | null;
+  configured: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const expected = (userEmail ?? "").trim().toLowerCase();
+  const matches = expected !== "" && typed.trim().toLowerCase() === expected;
+
+  function onOpenChange(next: boolean) {
+    if (busy) return; // don't let the dialog close mid-delete
+    setOpen(next);
+    if (!next) {
+      setTyped("");
+      setError(null);
+    }
+  }
+
+  async function confirm() {
+    if (!matches) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/delete-account", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      // Wipe the local cache so a future sign-in on this device starts
+      // empty rather than re-uploading the deleted user's data.
+      await clearAllStores();
+      const supabase = getSupabaseBrowser();
+      if (supabase) await supabase.auth.signOut();
+      // Hard navigation so the proxy sees the cleared cookies on the very
+      // next request and the new page mounts with a fresh client.
+      window.location.assign("/login");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete account.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-red-500/30 bg-card">
+      <header className="border-b border-red-500/30 bg-red-500/5 px-5 py-3">
+        <h3 className="text-sm font-semibold tracking-tight text-red-700 dark:text-red-400">
+          Delete account
+        </h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Permanently removes your account and all synced data. Can&apos;t be
+          undone.
+        </p>
+      </header>
+      <div className="flex items-center justify-between gap-4 px-5 py-4">
+        <p className="text-xs text-muted-foreground">
+          We&apos;ll delete your profile, daily logs, weight history, custom
+          foods, and meal templates from Supabase, plus everything saved on this
+          device.
+        </p>
+        <AlertDialog
+          open={open}
+          onOpenChange={onOpenChange}
+        >
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 border-red-500/40 text-red-700 hover:bg-red-500/10 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete account
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This is permanent. Your Supabase account and all synced data
+                will be deleted; your local data on this device will also be
+                wiped.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-1.5 pt-2">
+              <Label
+                htmlFor="confirm-email"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Type{" "}
+                <span className="font-mono text-foreground">
+                  {userEmail ?? "your email"}
+                </span>{" "}
+                to confirm
+              </Label>
+              <Input
+                id="confirm-email"
+                type="email"
+                autoComplete="off"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                disabled={busy}
+                placeholder={userEmail ?? ""}
+              />
+              {!configured && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Supabase isn&apos;t configured on this build — deletion will
+                  fail.
+                </p>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  className="text-xs text-red-600"
+                >
+                  {error}
+                </p>
+              )}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault(); // keep the dialog open until we navigate
+                  confirm();
+                }}
+                disabled={!matches || busy}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                {busy ? "Deleting…" : "Delete account"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </section>
   );
 }

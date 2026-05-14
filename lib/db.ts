@@ -305,3 +305,30 @@ export async function deleteWeightEntry(date: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_WEIGHT_HISTORY, date);
 }
+
+/** Wipes every store. Used by the Delete account flow so a future sign-in
+ * on the same device starts from a truly empty slate (otherwise the next
+ * sync would push the leftover rows into the new user's account). Runs
+ * in a single transaction so a mid-flight failure either clears all five
+ * stores or none — no half-state. */
+export async function clearAllStores(): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(
+    [
+      STORE_CUSTOM_FOODS,
+      STORE_PROFILE,
+      STORE_DAILY_LOGS,
+      STORE_MEAL_TEMPLATES,
+      STORE_WEIGHT_HISTORY,
+    ],
+    "readwrite",
+  );
+  await Promise.all([
+    tx.objectStore(STORE_CUSTOM_FOODS).clear(),
+    tx.objectStore(STORE_PROFILE).clear(),
+    tx.objectStore(STORE_DAILY_LOGS).clear(),
+    tx.objectStore(STORE_MEAL_TEMPLATES).clear(),
+    tx.objectStore(STORE_WEIGHT_HISTORY).clear(),
+    tx.done,
+  ]);
+}
