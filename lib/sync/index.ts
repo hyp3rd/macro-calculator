@@ -118,8 +118,9 @@ export async function triggerSync(
  * survives React's runtime-error overlay (which calls `.toString()` on
  * thrown values — plain objects render as "[object Object]"). Includes
  * the PGRST/Postgres code when present so 403s carry the actual cause
- * (column grant, RLS, schema-cache stale, etc). */
-function asError(
+ * (column grant, RLS, schema-cache stale, etc). Exported so the unit
+ * test can pin its formatting; not part of the public sync API. */
+export function asError(
   err: { message?: string; code?: string; details?: string; hint?: string },
   context: string,
 ): Error {
@@ -170,7 +171,8 @@ async function pushWeightEntries(
   result.pushed.weightEntries = rows.length;
 }
 
-async function pushCustomFoods(
+/** @internal Exported for unit tests. Not part of the stable sync API. */
+export async function pushCustomFoods(
   supabase: SupabaseClient,
   userId: string,
   result: SyncResult,
@@ -218,7 +220,8 @@ async function pushCustomFoods(
   result.pushed.customFoods = pushed;
 }
 
-async function pushMealTemplates(
+/** @internal Exported for unit tests. Not part of the stable sync API. */
+export async function pushMealTemplates(
   supabase: SupabaseClient,
   userId: string,
   result: SyncResult,

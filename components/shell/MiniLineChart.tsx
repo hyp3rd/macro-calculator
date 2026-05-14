@@ -88,16 +88,19 @@ export function MiniLineChart({
   const yTickValues = [0, 0.25, 0.5, 0.75, 1].map((t) => yMin + t * ySpan);
 
   // X-axis labels: pick evenly spaced indices and use their `label` when
-  // present, fall back to the numeric value.
-  const xLabelIndices: number[] = [];
-  if (data.length === 1) {
-    xLabelIndices.push(0);
-  } else {
-    const step = (data.length - 1) / (xTicks - 1);
-    for (let i = 0; i < xTicks; i++) {
-      xLabelIndices.push(Math.round(i * step));
-    }
-  }
+  // present, fall back to the numeric value. Dedupe — when data.length <
+  // xTicks the rounded steps collide (e.g. 2 points + 5 ticks → indices
+  // [0,0,1,1,1]) and React would warn about duplicate keys.
+  const xLabelIndices: number[] =
+    data.length === 1
+      ? [0]
+      : Array.from(
+          new Set(
+            Array.from({ length: xTicks }, (_, i) =>
+              Math.round((i * (data.length - 1)) / (xTicks - 1)),
+            ),
+          ),
+        );
 
   return (
     <svg

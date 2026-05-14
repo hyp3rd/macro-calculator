@@ -50,21 +50,31 @@ export function aiPlanToMeals(
   const byName = new Map<string, Food>();
   for (const f of catalog) byName.set(f.name.toLowerCase().trim(), f);
 
+  // Defensive: the AI is *forced* into submit_meal_plan via tool_choice on
+  // the last iteration, but it can still hand us a partial / malformed
+  // input (missing `meals`, missing `foods`, non-array values). Treat any
+  // shape oddity as "no picks" rather than crashing — empty meal slots
+  // are far less alarming than a 500 from the route.
+  const aiMeals = Array.isArray(aiPlan?.meals) ? aiPlan.meals : [];
+
   let nextId = startId;
   return mealNames.map((slotName, idx) => {
     const aiMeal =
-      aiPlan.meals.find(
-        (m) => m.name.toLowerCase().trim() === slotName.toLowerCase().trim(),
-      ) ?? aiPlan.meals[idx];
+      aiMeals.find(
+        (m) =>
+          typeof m?.name === "string" &&
+          m.name.toLowerCase().trim() === slotName.toLowerCase().trim(),
+      ) ?? aiMeals[idx];
 
     const foods: FoodItem[] = [];
-    if (aiMeal) {
+    if (aiMeal && Array.isArray(aiMeal.foods)) {
       for (const pick of aiMeal.foods) {
+        if (!pick || typeof pick.name !== "string") continue;
         const food = byName.get(pick.name.toLowerCase().trim());
         if (!food) continue;
-        foods.push(
-          buildFoodItem(food, clampPortion(pick.portionGrams), nextId++),
-        );
+        const grams =
+          typeof pick.portionGrams === "number" ? pick.portionGrams : 100;
+        foods.push(buildFoodItem(food, clampPortion(grams), nextId++));
       }
     }
     return { id: idx + 1, name: slotName, foods };

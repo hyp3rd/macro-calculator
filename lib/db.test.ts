@@ -21,6 +21,8 @@ const BASELINE_PROFILE: PersonalInfo = {
   goal: "maintain",
   dietType: "balanced",
   dietPreference: "omnivore",
+  cuisinePreferences: [],
+  allergies: [],
   weeklyRateKg: 0.5,
   manualTdee: null,
 };

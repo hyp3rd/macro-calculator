@@ -45,6 +45,8 @@ const DEFAULT_PROFILE: PersonalInfo = {
   goal: "maintain",
   dietType: "balanced",
   dietPreference: "omnivore",
+  cuisinePreferences: [],
+  allergies: [],
   weeklyRateKg: 0.5,
   manualTdee: null,
 };
@@ -201,10 +203,11 @@ const MacroCalculator = () => {
     };
   }, [meals]);
 
-  // Handle personal info input changes
+  // Handle personal info input changes. Accepts arrays so the multi-value
+  // fields (cuisinePreferences, allergies) can ride through the same path.
   const handlePersonalInfoChange = (
     name: string,
-    value: string | number | null,
+    value: string | number | null | string[],
   ) => {
     setPersonalInfo({ ...personalInfo, [name]: value });
   };
@@ -617,6 +620,8 @@ const MacroCalculator = () => {
         dietPreference: personalInfo.dietPreference,
         mealNames: meals.map((m) => m.name),
         customFoods,
+        cuisinePreferences: personalInfo.cuisinePreferences ?? [],
+        allergies: personalInfo.allergies ?? [],
       });
 
       if (ai.kind === "ok") {
