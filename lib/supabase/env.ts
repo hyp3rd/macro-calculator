@@ -1,4 +1,4 @@
-/** Centralised access to the Supabase env vars.
+/** Centralized access to the Supabase env vars.
  *
  * Supabase's current naming (rolled out late 2024/2025):
  *   - `publishable key` (prefix `sb_publishable_`) — replaces "anon key"

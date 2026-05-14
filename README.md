@@ -62,7 +62,7 @@ multi-device sync. Locally it runs fine without it — sign-in is disabled
 and the app stays on IndexedDB.
 
 1. Create a project at <https://supabase.com> (free tier is enough).
-2. In the Supabase dashboard, go to **Project Settings → API Keys** and
+1. In the Supabase dashboard, go to **Project Settings → API Keys** and
    copy the **Project URL** plus the **publishable key** (prefix
    `sb_publishable_…`). Don't copy the secret key — it must never reach
    the browser.
@@ -71,14 +71,14 @@ and the app stays on IndexedDB.
    "secret" — the anon JWT (`eyJ…`) works in `PUBLISHABLE_KEY` if that's
    still what your dashboard surfaces; the SDK accepts either format.
 
-3. Paste them into `.env.local`:
+1. Paste them into `.env.local`:
 
    ```env
    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
    ```
 
-4. **Apply schema migrations via the Supabase CLI**. The CLI is bundled
+1. **Apply schema migrations via the Supabase CLI**. The CLI is bundled
    as a devDependency, so no global install needed. One-time per machine:
 
    ```bash
@@ -121,12 +121,12 @@ and the app stays on IndexedDB.
 migration list`) so reviewers can see exactly what will land at merge.
    On `push` to `main`, it runs `supabase db push`.
 
-5. In **Authentication → URL configuration**, set the **Site URL** to
+1. In **Authentication → URL configuration**, set the **Site URL** to
    the URL you'll be testing from (`http://localhost:3000` for local,
    `https://yourapp.vercel.app` for prod). Add
    `http://localhost:3000/auth/callback` and the equivalent prod URL to
    **Redirect URLs**.
-6. **Customize the magic-link email template** (Authentication → Email
+1. **Customize the magic-link email template** (Authentication → Email
    Templates → Magic Link) to include the OTP code. Supabase's default
    template only has the link, but the app's sign-in form expects a
    numeric one-time code (6 or 8 digits, depending on your Supabase OTP
@@ -149,7 +149,7 @@ migration list`) so reviewers can see exactly what will land at merge.
    Without this change the email contains only a link and there's no
    code to paste — the link will still work but it's the brittle path.
 
-7. Restart `npm run dev`. The sidebar should now show "Sign in" instead
+1. Restart `npm run dev`. The sidebar should now show "Sign in" instead
    of "Guest".
 
 Notes:

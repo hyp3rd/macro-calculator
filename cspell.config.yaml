@@ -1,17 +1,51 @@
 version: "0.2"
-ignorePaths: []
+ignorePaths:
+  - Makefile
+  - .pre-commit-config.yaml
+  - "*.svg"
+  - .github/workflows/*.yml
+  - package.json
+  - package-lock.json
+  - .prettierrc.json
+  - .prettierignore
 dictionaryDefinitions: []
 dictionaries: []
 words:
+  - autoincrements
+  - carb
+  - cmdk
+  - Cramer
+  - Cramer's
+  - Dedup
+  - desaturated
+  - Elipssis
+  - Embla
+  - frob
+  - Frobenius
+  - gridlines
+  - hasn
+  - IDBP
+  - inbucket
   - indexeddb
   - Jeor
   - licious
+  - magiclink
   - maxage
   - Mifflin
+  - nums
   - openfoodfacts
+  - pgcrypto
+  - PKCE
+  - plpgsql
+  - summarise
   - supabase
   - TDEE
   - Topbar
+  - trivago
   - Turbopack
+  - Unconfigured
+  - upserts
+  - vaul
+  - vercel
 ignoreWords: []
 import: []
