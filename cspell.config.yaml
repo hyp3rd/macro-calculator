@@ -1,0 +1,17 @@
+version: "0.2"
+ignorePaths: []
+dictionaryDefinitions: []
+dictionaries: []
+words:
+  - indexeddb
+  - Jeor
+  - licious
+  - maxage
+  - Mifflin
+  - openfoodfacts
+  - supabase
+  - TDEE
+  - Topbar
+  - Turbopack
+ignoreWords: []
+import: []

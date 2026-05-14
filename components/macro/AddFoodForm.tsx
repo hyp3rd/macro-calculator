@@ -23,7 +23,7 @@ interface AddFoodFormProps {
   showSuggestions: boolean;
   portionSize: number;
   isSearchingRemote: boolean;
-  suggestionsRef: React.RefObject<HTMLDivElement>;
+  suggestionsRef: React.RefObject<HTMLDivElement | null>;
   setFoodSearch: (value: string) => void;
   setNewFood: (food: FoodItem) => void;
   setShowSuggestions: (show: boolean) => void;

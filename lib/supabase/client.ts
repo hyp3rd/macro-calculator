@@ -11,6 +11,9 @@ let cached: SupabaseClient | null = null;
  * before using. */
 export function getSupabaseBrowser(): SupabaseClient | null {
   if (!SUPABASE_CONFIG) return null;
-  cached ??= createBrowserClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+  cached ??= createBrowserClient(
+    SUPABASE_CONFIG.url,
+    SUPABASE_CONFIG.publishableKey,
+  );
   return cached;
 }

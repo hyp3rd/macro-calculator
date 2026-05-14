@@ -4,6 +4,7 @@ import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Sidebar, type ViewKey } from "./Sidebar";
 import { StorageBanner } from "./StorageBanner";
+import { SyncManager } from "./SyncManager";
 import { Topbar } from "./Topbar";
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
 export function AppShell({ current, onSelect, children }: Props) {
   return (
     <div className="flex min-h-screen bg-background text-foreground">
+      <SyncManager />
       <Sidebar
         current={current}
         onSelect={onSelect}

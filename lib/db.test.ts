@@ -50,7 +50,7 @@ describe("addCustomFood", () => {
     await freshDb();
   });
 
-  it("inserts a record and returns its auto-assigned id", async () => {
+  it("inserts a record and returns its client-minted UUID", async () => {
     const { addCustomFood, listCustomFoods } = await freshDb();
     const id = await addCustomFood({
       name: "Whey",
@@ -59,8 +59,11 @@ describe("addCustomFood", () => {
       fat: 2,
       calories: 370,
     });
-    expect(typeof id).toBe("number");
-    expect(id).toBeGreaterThan(0);
+    expect(typeof id).toBe("string");
+    // UUID format check (8-4-4-4-12).
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
 
     const rows = await listCustomFoods();
     expect(rows).toHaveLength(1);
@@ -69,20 +72,39 @@ describe("addCustomFood", () => {
     expect(rows[0].createdAt).toBeGreaterThan(0);
   });
 
-  it("does not crash on the IndexedDB keyPath when id is unspecified", async () => {
-    // Regression: previously the call site passed `id: undefined` which
-    // IndexedDB rejects as 'not a valid key' for a keyPath store with
-    // autoIncrement. https://w3c.github.io/IndexedDB/#extract-a-key-from-a-value-using-a-key-path
+  it("addCustomFood mints distinct UUIDs across calls", async () => {
     const { addCustomFood } = await freshDb();
-    await expect(
-      addCustomFood({
-        name: "Oats",
-        protein: 13,
-        carbs: 67,
-        fat: 7,
-        calories: 389,
-      }),
-    ).resolves.toBeTypeOf("number");
+    const a = await addCustomFood({
+      name: "A",
+      protein: 1,
+      carbs: 1,
+      fat: 1,
+      calories: 17,
+    });
+    const b = await addCustomFood({
+      name: "B",
+      protein: 1,
+      carbs: 1,
+      fat: 1,
+      calories: 17,
+    });
+    expect(a).not.toBe(b);
+  });
+
+  it("upsertCustomFood writes at a caller-supplied id (used by sync)", async () => {
+    const { upsertCustomFood, listCustomFoods } = await freshDb();
+    await upsertCustomFood({
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "Whey from server",
+      protein: 80,
+      carbs: 8,
+      fat: 2,
+      calories: 370,
+      createdAt: Date.now(),
+    });
+    const rows = await listCustomFoods();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("00000000-0000-4000-8000-000000000001");
   });
 
   it("supports searching by case-insensitive substring", async () => {
@@ -219,8 +241,10 @@ describe("meal templates", () => {
     const { saveMealTemplate, listMealTemplates } = await freshDb();
     const foods = SAMPLE_MEALS[0].foods;
     const id = await saveMealTemplate({ name: "Oats bowl", foods });
-    expect(typeof id).toBe("number");
-    expect(id).toBeGreaterThan(0);
+    expect(typeof id).toBe("string");
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
 
     const rows = await listMealTemplates();
     expect(rows).toHaveLength(1);
@@ -257,13 +281,32 @@ describe("meal templates", () => {
     expect(await listMealTemplates()).toHaveLength(0);
   });
 
-  it("does not crash on the IndexedDB keyPath when id is unspecified", async () => {
-    // Same regression class as customFoods — verify the autoIncrement
-    // path doesn't see an explicit undefined.
+  it("saveMealTemplate returns a UUID and mints distinct values", async () => {
     const { saveMealTemplate } = await freshDb();
-    await expect(
-      saveMealTemplate({ name: "Smoke", foods: SAMPLE_MEALS[0].foods }),
-    ).resolves.toBeTypeOf("number");
+    const a = await saveMealTemplate({
+      name: "A",
+      foods: SAMPLE_MEALS[0].foods,
+    });
+    const b = await saveMealTemplate({
+      name: "B",
+      foods: SAMPLE_MEALS[0].foods,
+    });
+    expect(a).not.toBe(b);
+    expect(typeof a).toBe("string");
+  });
+
+  it("upsertMealTemplate writes at a caller-supplied id (used by sync)", async () => {
+    const { upsertMealTemplate, listMealTemplates } = await freshDb();
+    await upsertMealTemplate({
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "From server",
+      foods: SAMPLE_MEALS[0].foods,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const rows = await listMealTemplates();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("11111111-1111-4111-8111-111111111111");
   });
 });
 

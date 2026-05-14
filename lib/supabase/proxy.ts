@@ -4,7 +4,7 @@ import { SUPABASE_CONFIG } from "./env";
 
 /** Refreshes the auth session cookie on every request so it stays valid.
  * Returns a `NextResponse` that has the latest cookies attached — the
- * middleware should return this (or a response built from it). */
+ * proxy should return this (or a response built from it). */
 export async function updateSession(
   request: NextRequest,
 ): Promise<NextResponse> {
@@ -16,7 +16,7 @@ export async function updateSession(
 
   const supabase = createServerClient(
     SUPABASE_CONFIG.url,
-    SUPABASE_CONFIG.anonKey,
+    SUPABASE_CONFIG.publishableKey,
     {
       cookies: {
         getAll() {
