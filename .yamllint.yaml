@@ -10,6 +10,6 @@ rules:
   line-length: disable
   truthy: disable
 ignore: |
-  cspell.json
+  cspell.config.yaml
   FUNDING.yml
   codeql.yml

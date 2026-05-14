@@ -25,7 +25,7 @@ type OFFHit = {
 type OFFSearchResponse = { hits?: OFFHit[]; count?: number };
 
 /** Search Open Food Facts. Pass an AbortSignal so a stale query can cancel.
- * Returns foods normalised to per-100g; products missing the macros we need
+ * Returns foods normalized to per-100g; products missing the macros we need
  * are silently dropped — better than rendering NaNs. */
 export async function searchOpenFoodFacts(
   query: string,

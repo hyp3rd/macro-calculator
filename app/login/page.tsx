@@ -186,7 +186,7 @@ export default function LoginPage() {
                 </span>
                 . Paste the numeric code below, or click the link in the email
                 (works only on this browser). If you only see a link and no
-                code, the Supabase email template hasn&apos;t been customised
+                code, the Supabase email template hasn&apos;t been customized
                 yet — see README → Supabase setup.
               </p>
             </div>
