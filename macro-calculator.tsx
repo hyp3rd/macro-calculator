@@ -32,6 +32,7 @@ import {
 } from "./lib/db";
 import { computeMacros } from "./lib/macros";
 import { planDay, summarisePlan } from "./lib/meal-planner";
+import { bumpPending } from "./lib/sync-status";
 
 const DEFAULT_PROFILE: PersonalInfo = {
   gender: "male",
@@ -238,6 +239,7 @@ const MacroCalculator = () => {
       calories: food.calories,
       brand: food.brand,
     });
+    bumpPending();
     setCustomFoodsRev((r) => r + 1);
   };
 
@@ -358,6 +360,49 @@ const MacroCalculator = () => {
     });
 
     setMeals(updatedMeals);
+  };
+
+  // Drag-and-drop: move a food to a different meal, optionally to a
+  // specific index. When `destIndex` is omitted, the food lands at the
+  // end of the destination meal. Within-meal moves with the same index
+  // are a no-op (avoids spurious setMeals on accidental clicks).
+  const moveFood = (
+    srcMealId: number,
+    destMealId: number,
+    foodId: number,
+    destIndex?: number,
+  ) => {
+    const src = meals.find((m) => m.id === srcMealId);
+    if (!src) return;
+    const food = src.foods.find((f) => f.id === foodId);
+    if (!food) return;
+
+    const sameMeal = srcMealId === destMealId;
+    const fromIndex = src.foods.findIndex((f) => f.id === foodId);
+    if (sameMeal && (destIndex === undefined || destIndex === fromIndex)) {
+      return;
+    }
+
+    setMeals(
+      meals.map((meal) => {
+        if (sameMeal && meal.id === srcMealId) {
+          const next = src.foods.filter((f) => f.id !== foodId);
+          const insertAt = Math.min(destIndex ?? next.length, next.length);
+          next.splice(insertAt, 0, food);
+          return { ...meal, foods: next };
+        }
+        if (meal.id === srcMealId) {
+          return { ...meal, foods: meal.foods.filter((f) => f.id !== foodId) };
+        }
+        if (meal.id === destMealId) {
+          const next = [...meal.foods];
+          const insertAt = Math.min(destIndex ?? next.length, next.length);
+          next.splice(insertAt, 0, food);
+          return { ...meal, foods: next };
+        }
+        return meal;
+      }),
+    );
   };
 
   // Start editing a food's portion size
@@ -633,6 +678,7 @@ const MacroCalculator = () => {
           handleFoodChange={handleFoodChange}
           addFood={addFood}
           removeFood={removeFood}
+          moveFood={moveFood}
           startEditingFood={startEditingFood}
           cancelEditing={cancelEditing}
           handleEditPortionChange={handleEditPortionChange}

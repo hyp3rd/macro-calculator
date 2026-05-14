@@ -17,6 +17,7 @@ import {
   type WeightEntry,
 } from "@/lib/db";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
+import { bumpPending } from "@/lib/sync-status";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Check, LineChart, TrendingDown, TrendingUp } from "lucide-react";
@@ -289,6 +290,7 @@ function WeighInForm({ onSaved }: { onSaved: () => void }) {
     try {
       await saveWeightEntry(date, value);
       reportStorageOk();
+      bumpPending();
       setKg("");
       setDate(todayKey());
       setJustSaved(true);

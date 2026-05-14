@@ -3,6 +3,7 @@
 import type { Meal } from "@/components/macro/types";
 import { getDailyLog, saveDailyLog } from "@/lib/db";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
+import { bumpPending } from "@/lib/sync-status";
 import { useEffect, useState } from "react";
 
 const WRITE_DEBOUNCE_MS = 500;
@@ -57,5 +58,13 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
     return () => window.clearTimeout(t);
   }, [meals, date, isHydrated]);
 
-  return { date, meals, setMeals: setMealsState, isHydrated };
+  // Public setter — bumps the sync-pending counter so the topbar pill
+  // can signal "you have local changes." Internal hydration uses
+  // setMealsState directly to avoid spurious pending signals.
+  function setMeals(next: Meal[]) {
+    bumpPending();
+    setMealsState(next);
+  }
+
+  return { date, meals, setMeals, isHydrated };
 }

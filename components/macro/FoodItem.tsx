@@ -1,5 +1,7 @@
 import React from "react";
-import { Edit2, Search, Trash2 } from "lucide-react";
+import { Edit2, GripVertical, Search, Trash2 } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Food, FoodItem as FoodItemType } from "../../components/macro/types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -57,9 +59,45 @@ const FoodItem: React.FC<FoodItemProps> = ({
 }) => {
   const isEditing = editingFood.foodId === food.id;
   const isReplacing = replacingFood.foodId === food.id;
+  const sortableId = `${mealId}:${food.id}`;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: sortableId,
+    data: { mealId, foodId: food.id },
+    // Disable dragging while editing/replacing so input clicks aren't
+    // hijacked by the drag sensor.
+    disabled: isEditing || isReplacing,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
 
   return (
-    <tr className="transition-colors hover:bg-muted/40">
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className="transition-colors hover:bg-muted/40"
+    >
+      <td className="w-8 px-1 py-2.5 align-middle">
+        <button
+          type="button"
+          aria-label={`Drag ${food.name}`}
+          className="flex h-7 w-6 cursor-grab touch-none items-center justify-center text-muted-foreground hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
+          disabled={isEditing || isReplacing}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      </td>
       <td className="whitespace-nowrap px-3 py-2.5">
         {isReplacing ? (
           <div

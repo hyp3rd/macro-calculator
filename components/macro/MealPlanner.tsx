@@ -1,8 +1,20 @@
 "use client";
 
 import React from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { GripVertical, Loader2, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import {
+  DndContext,
+  DragOverlay,
+  type DragEndEvent,
+  type DragStartEvent,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import {
   CalculatedValues,
   Food,
@@ -59,6 +71,12 @@ interface MealPlannerProps {
   handleFoodChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   addFood: () => void;
   removeFood: (mealId: number, foodId: number) => void;
+  moveFood: (
+    srcMealId: number,
+    destMealId: number,
+    foodId: number,
+    destIndex?: number,
+  ) => void;
   startEditingFood: (mealId: number, food: FoodItem) => void;
   cancelEditing: () => void;
   handleEditPortionChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -103,6 +121,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   handleFoodChange,
   addFood,
   removeFood,
+  moveFood,
   startEditingFood,
   cancelEditing,
   handleEditPortionChange,
@@ -120,8 +139,74 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   const isError = mealPlanMessage.toLowerCase().includes("error");
   const dayIsEmpty = meals.every((m) => m.foods.length === 0);
 
+  // PointerSensor with an 8px activation distance so single clicks on
+  // the grip don't get interpreted as drags. KeyboardSensor wires Space
+  // + arrow keys for accessibility (the same affordance for non-mouse
+  // users).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  // Track the currently-dragged food so `DragOverlay` can render a clone
+  // in a portal — without it the dragged row vanishes the moment the
+  // cursor leaves its meal's overflow-clipped table container.
+  const [activeFood, setActiveFood] = React.useState<{
+    mealId: number;
+    foodId: number;
+  } | null>(null);
+  const activeFoodItem =
+    activeFood &&
+    meals
+      .find((m) => m.id === activeFood.mealId)
+      ?.foods.find((f) => f.id === activeFood.foodId);
+
+  function handleDragStart(event: DragStartEvent) {
+    const data = event.active.data.current as
+      | { mealId: number; foodId: number }
+      | undefined;
+    if (data) setActiveFood(data);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveFood(null);
+    const { active, over } = event;
+    if (!over) return;
+    const src = active.data.current as
+      | { mealId: number; foodId: number }
+      | undefined;
+    if (!src) return;
+
+    // The drop target is either another food row (id `mealId:foodId`)
+    // or a meal-level droppable (id `meal-${mealId}`, fires when the
+    // meal has zero items or you drop in the empty space around them).
+    const over_ = over.data.current as
+      | { mealId: number; foodId?: number; type?: string }
+      | undefined;
+    const destMealId = over_?.mealId ?? src.mealId;
+
+    let destIndex: number | undefined;
+    if (over_?.foodId !== undefined) {
+      const destMeal = meals.find((m) => m.id === destMealId);
+      destIndex = destMeal?.foods.findIndex((f) => f.id === over_.foodId);
+      if (destIndex === -1) destIndex = undefined;
+    }
+    moveFood(src.mealId, destMealId, src.foodId, destIndex);
+  }
+
   return (
     <div className="space-y-6">
+      <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+        <div className="px-5 py-4">
+          <DailyTotals
+            calculatedValues={calculatedValues}
+            totalMacros={totalMacros}
+          />
+        </div>
+      </section>
+
       <AddFoodForm
         meals={meals}
         newFood={newFood}
@@ -198,35 +283,53 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
           </div>
         )}
 
-        <div className="divide-y divide-border/60">
-          {meals.map((meal) => (
-            <MealItem
-              key={meal.id}
-              meal={meal}
-              editingFood={editingFood}
-              replacingFood={replacingFood}
-              replacementSuggestionsRef={replacementSuggestionsRef}
-              startEditingFood={startEditingFood}
-              cancelEditing={cancelEditing}
-              handleEditPortionChange={handleEditPortionChange}
-              saveEditedPortion={saveEditedPortion}
-              startReplacingFood={startReplacingFood}
-              cancelReplacing={cancelReplacing}
-              handleReplacementSearch={handleReplacementSearch}
-              replaceFood={replaceFood}
-              removeFood={removeFood}
-              onSaveAsTemplate={onSaveAsTemplate}
-              onAddFromTemplate={onAddFromTemplate}
-            />
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveFood(null)}
+        >
+          <DragOverlay dropAnimation={null}>
+            {activeFoodItem ? (
+              <div className="pointer-events-none flex items-center gap-2 rounded-md border border-border/60 bg-card px-3 py-2 shadow-lg ring-1 ring-foreground/5">
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">
+                  {activeFoodItem.name}
+                </span>
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  {activeFoodItem.portionSize
+                    ? `${activeFoodItem.portionSize} g · `
+                    : ""}
+                  {activeFoodItem.calories} kcal
+                </span>
+              </div>
+            ) : null}
+          </DragOverlay>
 
-        <div className="border-t border-border/60 bg-muted/30 px-5 py-4">
-          <DailyTotals
-            calculatedValues={calculatedValues}
-            totalMacros={totalMacros}
-          />
-        </div>
+          <div className="divide-y divide-border/60">
+            {meals.map((meal) => (
+              <MealItem
+                key={meal.id}
+                meal={meal}
+                editingFood={editingFood}
+                replacingFood={replacingFood}
+                replacementSuggestionsRef={replacementSuggestionsRef}
+                startEditingFood={startEditingFood}
+                cancelEditing={cancelEditing}
+                handleEditPortionChange={handleEditPortionChange}
+                saveEditedPortion={saveEditedPortion}
+                startReplacingFood={startReplacingFood}
+                cancelReplacing={cancelReplacing}
+                handleReplacementSearch={handleReplacementSearch}
+                replaceFood={replaceFood}
+                removeFood={removeFood}
+                onSaveAsTemplate={onSaveAsTemplate}
+                onAddFromTemplate={onAddFromTemplate}
+              />
+            ))}
+          </div>
+        </DndContext>
       </section>
     </div>
   );

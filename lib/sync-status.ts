@@ -8,48 +8,84 @@ export type SyncStatus =
   | { state: "synced"; at: number }
   | { state: "error"; message: string };
 
-const INITIAL: SyncStatus = { state: "idle" };
-const SERVER_SNAPSHOT: SyncStatus = INITIAL;
+/** Combined view: the lifecycle state plus a "writes since last successful
+ * sync" counter. Pending is independent of state — a user can have pending
+ * writes while the engine is idle, synced, or errored. */
+export type SyncSnapshot = { status: SyncStatus; pending: number };
 
-let state: SyncStatus = INITIAL;
+const INITIAL: SyncSnapshot = { status: { state: "idle" }, pending: 0 };
+const SERVER_SNAPSHOT: SyncSnapshot = INITIAL;
+
+let snapshot: SyncSnapshot = INITIAL;
 const subscribers = new Set<() => void>();
 
-function setState(next: SyncStatus) {
-  state = next;
+function setSnapshot(next: SyncSnapshot) {
+  snapshot = next;
   for (const s of subscribers) s();
 }
 
 export function setSyncing(): void {
-  setState({ state: "syncing" });
+  setSnapshot({ status: { state: "syncing" }, pending: snapshot.pending });
 }
 
+/** Marks the sync as successful: the lifecycle moves to `synced` AND the
+ * pending counter resets to zero. The two are tied — a successful sync is
+ * exactly the moment the pending writes get reconciled with the server. */
 export function setSynced(): void {
-  setState({ state: "synced", at: Date.now() });
+  setSnapshot({ status: { state: "synced", at: Date.now() }, pending: 0 });
 }
 
 export function setSyncError(err: unknown): void {
   const message = err instanceof Error ? err.message : "Sync failed";
-  setState({ state: "error", message });
+  setSnapshot({
+    status: { state: "error", message },
+    pending: snapshot.pending,
+  });
+}
+
+/** Call after a user-facing IDB write completes. Marks the local store as
+ * ahead of the server until the next successful sync. The sync engine's
+ * own writes (pull-from-server) MUST NOT call this — those writes are
+ * reconciliations, not new pending changes. */
+export function bumpPending(): void {
+  setSnapshot({ ...snapshot, pending: snapshot.pending + 1 });
 }
 
 export function getSyncStatus(): SyncStatus {
-  return state;
+  return snapshot.status;
+}
+
+export function getSyncSnapshot(): SyncSnapshot {
+  return snapshot;
 }
 
 export function __resetSyncStatusForTests(): void {
-  state = INITIAL;
+  snapshot = INITIAL;
   for (const s of subscribers) s();
 }
 
+function subscribe(notify: () => void): () => void {
+  subscribers.add(notify);
+  return () => {
+    subscribers.delete(notify);
+  };
+}
+
+/** Returns the lifecycle status only. Kept for callers that don't care
+ * about pending changes (the sync engine's concurrent-run guard). */
 export function useSyncStatus(): SyncStatus {
   return useSyncExternalStore(
-    (notify) => {
-      subscribers.add(notify);
-      return () => {
-        subscribers.delete(notify);
-      };
-    },
-    () => state,
+    subscribe,
+    () => snapshot.status,
+    () => SERVER_SNAPSHOT.status,
+  );
+}
+
+/** Full snapshot — status plus pending counter. Used by the pill. */
+export function useSyncSnapshot(): SyncSnapshot {
+  return useSyncExternalStore(
+    subscribe,
+    () => snapshot,
     () => SERVER_SNAPSHOT,
   );
 }

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { addCustomFood, customToFood } from "@/lib/db";
+import { bumpPending } from "@/lib/sync-status";
 import { useState } from "react";
 
 type DraftFood = {
@@ -85,6 +86,7 @@ export function CustomFoodForm({
         calories: draft.calories,
         brand: draft.brand.trim() || undefined,
       });
+      bumpPending();
       onSaved(
         customToFood({
           id,
