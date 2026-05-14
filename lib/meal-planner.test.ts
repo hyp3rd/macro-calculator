@@ -179,6 +179,31 @@ describe("planMeal", () => {
     );
     expect(result).toEqual([]);
   });
+
+  it("never picks land-meat foods for a vegan diet preference", () => {
+    const tagged = (
+      base: Food,
+      category: string,
+      subCategory: string,
+    ): Food => ({ ...base, category, subCategory });
+    const chicken = tagged(
+      food("Chicken", 31, 0, 4),
+      "lean protein",
+      "poultry",
+    );
+    const tofu = tagged(food("Tofu", 14, 3, 8), "plant protein", "soy");
+    const rice = tagged(food("Rice", 7, 80, 1), "grain", "rice");
+    const olive = tagged(food("Olive Oil", 0, 0, 100), "oil", "olive oil");
+
+    const plan = planMeal(
+      [chicken, tofu, rice, olive],
+      { protein: 30, carbs: 80, fat: 25, calories: 666 },
+      1,
+      { dietPreference: "vegan" },
+    );
+    expect(plan.length).toBeGreaterThan(0);
+    expect(plan.some((f) => f.name === "Chicken")).toBe(false);
+  });
 });
 
 describe("planDay", () => {

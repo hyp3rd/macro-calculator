@@ -1,5 +1,17 @@
 export type FoodSource = "builtin" | "custom" | "off";
 
+/** Animal-vs-plant classification used by the diet filter. Built-in foods
+ * derive this from `category`/`subCategory`; custom foods set it explicitly
+ * via the My Foods form so the planner never ships a salmon fillet into a
+ * vegan plan. `undefined` is treated as "unknown" → omnivore-only. */
+export type FoodKind =
+  | "land-meat"
+  | "seafood"
+  | "egg"
+  | "dairy"
+  | "honey"
+  | "plant";
+
 export type Food = {
   /** Stable identifier across the three sources. Builtin derives from name,
    * custom uses the IndexedDB key, OFF uses the product barcode. */
@@ -15,6 +27,10 @@ export type Food = {
   subCategory?: string;
   mealTypes?: string[];
   brand?: string;
+  /** Explicit diet classification — when set, the diet filter trusts this
+   * over the category-derived classifier. Set on custom foods at create
+   * time; built-in foods can rely on category/subCategory instead. */
+  dietKind?: FoodKind;
 };
 
 export type FoodItem = {
@@ -38,14 +54,32 @@ export type FoodItem = {
 
 export type Meal = { id: number; name: string; foods: FoodItem[] };
 
+/** Mifflin-St Jeor only distinguishes between two formulas (+5 vs -161).
+ * We keep the form inclusive — anyone who doesn't identify as male picks
+ * the more conservative ("pessimistic") -161 path so calorie targets
+ * never over-estimate. Manual TDEE override is available for users who
+ * want to calibrate against real measurements. */
+export type Gender = "male" | "female" | "nonbinary" | "preferNotToSay";
+
+/** Animal-vs-plant dietary restrictions. Independent of `dietType` (which
+ * is about macro distribution). Plumbed into the meal-planner so generated
+ * plans only include foods the user actually eats. */
+export type DietPreference =
+  | "omnivore"
+  | "vegetarian"
+  | "vegan"
+  | "pescatarian"
+  | "carnivore";
+
 export type PersonalInfo = {
-  gender: "male" | "female";
+  gender: Gender;
   age: number;
   weight: number;
   height: number;
   activityLevel: "sedentary" | "light" | "moderate" | "active" | "veryActive";
   goal: "lose" | "maintain" | "gain";
   dietType: "balanced" | "lowCarb" | "lowFat";
+  dietPreference: DietPreference;
   /** Target weight change rate in kg/week. Sign-less; the `goal` field
    * determines whether it's a deficit or surplus. Ignored when goal is
    * "maintain". 1 kg fat ≈ 7700 kcal → daily delta ≈ rate × 1100. */

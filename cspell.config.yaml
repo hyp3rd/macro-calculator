@@ -33,12 +33,17 @@ words:
   - magiclink
   - maxage
   - Mifflin
+  - nonbinary
   - nums
   - openfoodfacts
+  - pangasius
   - passwordless
+  - pescatarian
   - pgcrypto
+  - PGRST
   - PKCE
   - plpgsql
+  - Postgrest
   - sparkline
   - summarise
   - supabase

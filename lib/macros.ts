@@ -12,10 +12,15 @@ import {
  * daily delta is clamped so the target never drops below max(BMR, 1200) and
  * the rate is clamped to ≤1% of bodyweight/week (textbook upper bound). */
 export function computeMacros(p: PersonalInfo): CalculatedValues {
-  const bmr =
-    p.gender === "male"
-      ? 10 * p.weight + 6.25 * p.height - 5 * p.age + 5
-      : 10 * p.weight + 6.25 * p.height - 5 * p.age - 161;
+  // Mifflin-St Jeor has two paths: +5 (assumed-male physiology) or -161
+  // (assumed-female physiology). For non-binary / prefer-not-to-say we
+  // pick the lower-calorie estimate (-161). It's the conservative choice:
+  // under-estimating energy needs is safer than over-estimating, and the
+  // manual TDEE override lets anyone calibrate against real-world results.
+  const malePath = p.gender === "male";
+  const bmr = malePath
+    ? 10 * p.weight + 6.25 * p.height - 5 * p.age + 5
+    : 10 * p.weight + 6.25 * p.height - 5 * p.age - 161;
 
   // Manual TDEE overrides the formula-based estimate when provided. Without
   // it, we use BMR × activity multiplier, which is a textbook approximation

@@ -39,7 +39,10 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
     getProfile()
       .then((loaded) => {
         if (cancelled) return;
-        if (loaded) setProfileState(loaded);
+        // Merge defaults *behind* the loaded record so new fields added in
+        // later schema versions (e.g. dietPreference) get a sane value when
+        // an existing IDB / Supabase profile lacks them.
+        if (loaded) setProfileState({ ...defaultProfile, ...loaded });
         setIsHydrated(true);
       })
       .catch((err) => {
@@ -51,7 +54,7 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [defaultProfile]);
 
   // Debounced write. Gated on `isHydrated` so we don't immediately write
   // the synthetic default over a freshly-loaded profile.

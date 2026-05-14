@@ -1,4 +1,10 @@
-import type { Food, FoodItem, Meal } from "@/components/macro/types";
+import type {
+  DietPreference,
+  Food,
+  FoodItem,
+  Meal,
+} from "@/components/macro/types";
+import { filterByDiet } from "@/lib/diet";
 
 /** Lower bound for solid foods. Fat-dominant foods (oils, butters) override
  * this with a smaller minimum since 10g of olive oil is a real portion. */
@@ -164,19 +170,25 @@ export function planMeal(
   availableFoods: Food[],
   targets: MealTargets,
   startId: number,
-  options: { withVegetable?: boolean } = {},
+  options: { withVegetable?: boolean; dietPreference?: DietPreference } = {},
 ): FoodItem[] {
+  // Diet filter is the very first cut: an obviously-wrong food (chicken
+  // in a vegan plan) should never even reach the triplet search.
+  const eligible = options.dietPreference
+    ? filterByDiet(availableFoods, options.dietPreference)
+    : availableFoods;
+
   const proteinFoods = shuffled(
-    availableFoods.filter((f) => isDominantlyEnough(f, "protein")),
+    eligible.filter((f) => isDominantlyEnough(f, "protein")),
   );
   const carbFoods = shuffled(
-    availableFoods.filter((f) => isDominantlyEnough(f, "carbs")),
+    eligible.filter((f) => isDominantlyEnough(f, "carbs")),
   );
   const fatFoods = shuffled(
-    availableFoods.filter((f) => isDominantlyEnough(f, "fat")),
+    eligible.filter((f) => isDominantlyEnough(f, "fat")),
   );
   const vegetables = shuffled(
-    availableFoods.filter((f) => f.category === "vegetable"),
+    eligible.filter((f) => f.category === "vegetable"),
   );
 
   // If a vegetable is included, subtract its contribution from the targets
@@ -240,8 +252,10 @@ export function planMeal(
 
   // Fallback: scale a single most-calorie-dense food to hit calories.
   // Macros will be off but we'll at least put something on the plate.
-  if (availableFoods.length === 0) return [];
-  const best = [...availableFoods].sort(
+  // Still filtered by diet — never serve chicken to a vegan even when
+  // the triplet search fails.
+  if (eligible.length === 0) return [];
+  const best = [...eligible].sort(
     (a, b) => b.protein * 4 + b.fat * 9 - (a.protein * 4 + a.fat * 9),
   )[0];
   if (!best || !Number.isFinite(best.calories) || best.calories <= 0) {
@@ -301,7 +315,11 @@ export function planDay(
   meals: Meal[],
   foodDatabase: Food[],
   daily: DailyTargets,
-  options: { customFoods?: Food[]; distribution?: Record<number, number> } = {},
+  options: {
+    customFoods?: Food[];
+    distribution?: Record<number, number>;
+    dietPreference?: DietPreference;
+  } = {},
 ): Meal[] {
   const distribution = options.distribution ?? DEFAULT_DISTRIBUTION;
   const customFoods = options.customFoods ?? [];
@@ -321,6 +339,7 @@ export function planDay(
     ];
     const foods = planMeal(available, targets, nextId, {
       withVegetable: meal.id === 2 || meal.id === 3,
+      dietPreference: options.dietPreference,
     });
     nextId += foods.length;
     return { ...meal, foods };

@@ -5,6 +5,7 @@ import { ApplyTemplateDialog } from "./components/macro/ApplyTemplateDialog";
 import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
 import MealPlanner from "./components/macro/MealPlanner";
+import { MyFoodsView } from "./components/macro/MyFoodsView";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
 import { ProgressView } from "./components/macro/ProgressView";
 import { SaveTemplateDialog } from "./components/macro/SaveTemplateDialog";
@@ -24,6 +25,7 @@ import { useDailyLog } from "./hooks/use-daily-log";
 import { useFoodSearch } from "./hooks/use-food-search";
 import { useProfile } from "./hooks/use-profile";
 import { useToday } from "./hooks/use-today";
+import { requestAiMealPlan } from "./lib/ai-plan";
 import {
   addCustomFood,
   customToFood,
@@ -42,6 +44,7 @@ const DEFAULT_PROFILE: PersonalInfo = {
   activityLevel: "moderate",
   goal: "maintain",
   dietType: "balanced",
+  dietPreference: "omnivore",
   weeklyRateKg: 0.5,
   manualTdee: null,
 };
@@ -584,15 +587,13 @@ const MacroCalculator = () => {
   };
 
   // Generate a full day meal plan that hits the daily macro targets.
-  // Per meal we pick a (protein, carb, fat) food triplet and solve a 3×3
-  // linear system for portion sizes — see lib/meal-planner.ts.
+  // Try the AI route first (when configured + user signed in) for more
+  // coherent food combinations; fall back to the deterministic 3×3
+  // Cramer-based planner on any failure path — see lib/meal-planner.ts.
   const generateMealPlan = async () => {
     setIsGeneratingMealPlan(true);
     setMealPlanMessage("Generating your personalized meal plan...");
     try {
-      // Yield once so the spinner paints before the synchronous solve.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
       // Pull saved custom foods (silent if IndexedDB is unavailable).
       let customFoods: Food[] = [];
       try {
@@ -608,17 +609,56 @@ const MacroCalculator = () => {
         fat: calculatedValues.fat,
         calories: calculatedValues.targetCalories,
       };
-      const planned = planDay(meals, foodDatabase, daily, { customFoods });
+
+      // Try the AI route first. Errors here are non-fatal — they fall
+      // through to the deterministic planner below.
+      const ai = await requestAiMealPlan({
+        targets: daily,
+        dietPreference: personalInfo.dietPreference,
+        mealNames: meals.map((m) => m.name),
+        customFoods,
+      });
+
+      if (ai.kind === "ok") {
+        setMeals(ai.meals);
+        const summary = summarisePlan(ai.meals, daily);
+        const fmt = (n: number) => `${Math.round(n)}%`;
+        setMealPlanMessage(
+          `AI plan — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`,
+        );
+        setTimeout(() => setMealPlanMessage(""), 5000);
+        return;
+      }
+
+      // Yield once so the spinner paints before the synchronous solve.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const planned = planDay(meals, foodDatabase, daily, {
+        customFoods,
+        dietPreference: personalInfo.dietPreference,
+      });
       const summary = summarisePlan(planned, daily);
 
       setMeals(planned);
 
       const fmt = (n: number) => `${Math.round(n)}%`;
-      const msg = summary.withinTolerance
+      // Lead the message with the *reason* AI was skipped — silent
+      // fallback is confusing if the user expected the AI to fire.
+      const prefix =
+        ai.kind === "not-configured"
+          ? "AI not configured — used formula. "
+          : ai.kind === "not-authenticated"
+            ? "Sign in to use AI planning — used formula. "
+            : ai.kind === "rate-limited"
+              ? "AI rate-limited — used formula. "
+              : ai.kind === "error"
+                ? `AI failed (${ai.message}) — used formula. `
+                : "";
+      const tail = summary.withinTolerance
         ? `Plan hits P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`
         : `Plan within reach — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)}. Limited by available foods.`;
-      setMealPlanMessage(msg);
-      setTimeout(() => setMealPlanMessage(""), 5000);
+      setMealPlanMessage(prefix + tail);
+      setTimeout(() => setMealPlanMessage(""), 6000);
     } catch (error) {
       setMealPlanMessage("Error generating meal plan. Please try again.");
       console.error("Meal plan generation error:", error);
@@ -701,6 +741,10 @@ const MacroCalculator = () => {
 
       {view === "progress" && (
         <ProgressView targetCalories={calculatedValues.targetCalories} />
+      )}
+
+      {view === "foods" && (
+        <MyFoodsView onChange={() => setCustomFoodsRev((r) => r + 1)} />
       )}
 
       {view === "settings" && <SettingsView />}

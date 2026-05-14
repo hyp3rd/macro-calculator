@@ -46,6 +46,8 @@ browser's IndexedDB.
 | UI primitives | shadcn/ui (Radix)                                            |
 | Local storage | [`idb`](https://github.com/jakearchibald/idb) over IndexedDB |
 | Auth + sync   | Supabase (Postgres + RLS, `@supabase/ssr`, email OTP)        |
+| AI planner    | Claude Haiku 4.5 via `@anthropic-ai/sdk` (opt-in)            |
+| Drag and drop | `@dnd-kit/core` + `@dnd-kit/sortable`                        |
 | Unit tests    | Vitest                                                       |
 | E2E tests     | Playwright (Chromium)                                        |
 | Lint          | ESLint 9 flat config via `eslint-config-next`                |
@@ -180,6 +182,45 @@ Notes:
   same secret to your Vercel project's env vars (Production + Preview)
   before relying on the button in deployed builds.
 
+### AI meal planning (optional)
+
+`/api/meal-plan` routes the **Auto-fill** button on the Meal Plan view
+through **Claude Haiku 4.5** for more coherent food combinations
+(breakfasts that look like breakfasts, etc.) than the deterministic
+3×3 Cramer solver can produce. It is **opt-in by env var** and falls
+back to the solver on every error path so existing setups keep working.
+
+1. Get an Anthropic API key from
+   [console.anthropic.com](https://console.anthropic.com) → Settings → API
+   keys. Set a usage budget while you're there — a single Auto-fill costs
+   <$0.001 with Haiku 4.5, but a budget is cheap insurance.
+1. Add it to `.env.local`:
+
+   ```env
+   ANTHROPIC_API_KEY=sk-ant-…
+   ```
+
+1. Add the same key to your Vercel project (Production + Preview, server-
+   only — do **not** tick "expose to client"). Redeploy.
+
+Behavior:
+
+- **Signed-in users only.** The route verifies the Supabase session before
+  calling Anthropic; guest users get the deterministic planner.
+- **Diet-preference aware.** The route filters the food catalog by the
+  user's preference _before_ sending to the AI, so a vegan never gets
+  chicken (matches the deterministic planner's behavior).
+- **Catalog-bounded.** The AI can only pick foods from the built-in
+  catalog + the user's `My Foods`; macros are computed server-side from
+  the catalog × portion, so hallucinated nutrient values can't slip
+  through. Hallucinated food _names_ are dropped silently.
+- **Graceful fallback.** Unset / wrong key, rate limit, 502 from
+  Anthropic, network error — all surface a short message and the
+  deterministic plan instead. The button never gets stuck.
+
+If you skip this entirely the rest of the app still works; only the AI
+flavour of Auto-fill is disabled.
+
 ## Scripts
 
 | Command              | What it does                            |
@@ -210,7 +251,15 @@ typecheck test sec build` and is what should pass before any merge.
   the `addCustomFood` regression for `keyPath` + `autoIncrement` +
   `id: undefined`, plus `clearAllStores` for the delete-account flow.
 - [`lib/sync/mappers.test.ts`](lib/sync/mappers.test.ts) — pure
-  camelCase ↔ snake_case + epoch ms ↔ ISO mapping for each table row.
+  camelCase ↔ snake_case + epoch ms ↔ ISO mapping for each table row,
+  including the `diet_kind` nullable round-trip.
+- [`lib/diet.test.ts`](lib/diet.test.ts) — food classifier + per-diet
+  compatibility, including the "unknown = omnivore-only" safety default
+  and explicit `dietKind` override behavior.
+- [`lib/ai/plan.test.ts`](lib/ai/plan.test.ts) — converts AI-shaped
+  picks into local `Meal[]`: catalog-name matching (case-insensitive,
+  trimmed), hallucinated-food drop, portion clamp + 5g snap, by-name
+  meal-slot resolution.
 - [`lib/storage-status.test.ts`](lib/storage-status.test.ts) — IndexedDB
   availability detection (covers private-mode browsers).
 - [`hooks/use-today.test.ts`](hooks/use-today.test.ts) and
@@ -251,6 +300,7 @@ app/
   auth/confirm/route.ts           # Magic-link verify (fallback path)
   api/off-search/route.ts         # Same-origin proxy to OFF Search-a-licious
   api/delete-account/route.ts    # Service-role admin.deleteUser (server-only)
+  api/meal-plan/route.ts          # Claude Haiku 4.5 auto-fill (signed-in, opt-in via ANTHROPIC_API_KEY)
 components/
   shell/                          # AppShell, Sidebar, Topbar, UserMenu,
                                   #   SyncManager, SyncStatusPill, DateNavigator,
@@ -273,6 +323,9 @@ lib/
   macros.ts                       # BMR, TDEE, target calories
   meal-planner.ts                 # 3×3 Cramer-based portion solver
   openfoodfacts.ts                # Client for /api/off-search
+  ai-plan.ts                      # Client for /api/meal-plan with discriminated error mapping
+  ai/env.ts                       # Server-only ANTHROPIC_API_KEY accessor
+  ai/plan.ts                      # AI response → Meal[] converter (catalog matching, portion clamp/snap)
   export.ts                       # Bundle IDB → downloadable JSON
   storage-status.ts               # IDB availability detection
   sync-status.ts                  # Sync pill global store (useSyncExternalStore)
@@ -346,6 +399,11 @@ Done:
   via the Supabase CLI + GitHub Actions.
 - **Phase 5 (account management)** — Change email, export-as-JSON,
   delete-account (cascades server-side via FK, wipes IDB locally).
+- **Phase 6 (UX + AI)** — Drag-and-drop foods between meals (`@dnd-kit`),
+  pending-changes signal on the sync pill, inclusive gender options +
+  diet-preference filtering, classifiable My Foods view, and
+  AI-generated meal plans via Claude Haiku 4.5 with deterministic
+  fallback.
 
 Possibly next (not committed, in rough priority order):
 
@@ -363,7 +421,7 @@ Possibly next (not committed, in rough priority order):
 
 ## Status
 
-`make ci` green: lint 0, tsc 0, **73 unit tests**, build, security audit.
+`make ci` green: lint 0, tsc 0, **100 unit tests**, build, security audit.
 3 Playwright smoke tests pass against the dev server.
 
 No LICENSE file present in the repo at the moment.

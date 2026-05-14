@@ -49,6 +49,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
               <SelectContent>
                 <SelectItem value="male">Male</SelectItem>
                 <SelectItem value="female">Female</SelectItem>
+                <SelectItem value="nonbinary">Non-binary</SelectItem>
+                <SelectItem value="preferNotToSay">
+                  Prefer not to say
+                </SelectItem>
               </SelectContent>
             </Select>
           </Field>
@@ -155,6 +159,27 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
                 <SelectItem value="balanced">Balanced (Standard)</SelectItem>
                 <SelectItem value="lowCarb">Low Carb</SelectItem>
                 <SelectItem value="lowFat">Low Fat</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field
+            id="dietPreference"
+            label="Diet Preference"
+          >
+            <Select
+              value={personalInfo.dietPreference}
+              onValueChange={(v) => onPersonalInfoChange("dietPreference", v)}
+            >
+              <SelectTrigger id="dietPreference">
+                <SelectValue placeholder="Select diet preference" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="omnivore">Omnivore</SelectItem>
+                <SelectItem value="pescatarian">Pescatarian</SelectItem>
+                <SelectItem value="vegetarian">Vegetarian</SelectItem>
+                <SelectItem value="vegan">Vegan</SelectItem>
+                <SelectItem value="carnivore">Carnivore</SelectItem>
               </SelectContent>
             </Select>
           </Field>

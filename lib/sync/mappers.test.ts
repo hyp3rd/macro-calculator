@@ -24,6 +24,7 @@ const PROFILE: PersonalInfo = {
   activityLevel: "moderate",
   goal: "maintain",
   dietType: "balanced",
+  dietPreference: "omnivore",
   weeklyRateKg: 0.5,
   manualTdee: null,
 };
@@ -127,7 +128,7 @@ describe("custom food mappers", () => {
     expect(back).toEqual(FOOD);
   });
 
-  it("fromRow restores undefined for null brand/category", () => {
+  it("fromRow restores undefined for null brand/category/dietKind", () => {
     const back = customFoodFromRow({
       id: FOOD.id,
       user_id: USER,
@@ -139,12 +140,52 @@ describe("custom food mappers", () => {
       brand: null,
       category: null,
       sub_category: null,
+      diet_kind: null,
       created_at: "2026-05-13T08:00:00.000Z",
       updated_at: "2026-05-13T08:00:00.000Z",
     });
     expect(back.brand).toBeUndefined();
     expect(back.category).toBeUndefined();
     expect(back.subCategory).toBeUndefined();
+    expect(back.dietKind).toBeUndefined();
+  });
+
+  it("fromRow round-trips a valid dietKind value", () => {
+    const back = customFoodFromRow({
+      id: FOOD.id,
+      user_id: USER,
+      name: "Tofu",
+      protein: 8,
+      carbs: 2,
+      fat: 4,
+      calories: 76,
+      brand: null,
+      category: null,
+      sub_category: null,
+      diet_kind: "plant",
+      created_at: "2026-05-13T08:00:00.000Z",
+      updated_at: "2026-05-13T08:00:00.000Z",
+    });
+    expect(back.dietKind).toBe("plant");
+  });
+
+  it("fromRow rejects unknown dietKind strings (treat as unclassified)", () => {
+    const back = customFoodFromRow({
+      id: FOOD.id,
+      user_id: USER,
+      name: "x",
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      calories: 0,
+      brand: null,
+      category: null,
+      sub_category: null,
+      diet_kind: "not-a-real-kind",
+      created_at: "2026-05-13T08:00:00.000Z",
+      updated_at: "2026-05-13T08:00:00.000Z",
+    });
+    expect(back.dietKind).toBeUndefined();
   });
 });
 

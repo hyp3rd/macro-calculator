@@ -36,7 +36,21 @@ export function setSynced(): void {
 }
 
 export function setSyncError(err: unknown): void {
-  const message = err instanceof Error ? err.message : "Sync failed";
+  // Defensive: even though sync paths wrap PostgrestError in proper Error
+  // instances (see lib/sync/index.ts → asError), this handler still gets
+  // called from other code paths. Pull the `.message` off plain objects
+  // too so the pill tooltip never falls back to a generic "Sync failed".
+  let message = "Sync failed";
+  if (err instanceof Error) {
+    message = err.message;
+  } else if (
+    err &&
+    typeof err === "object" &&
+    "message" in err &&
+    typeof (err as { message: unknown }).message === "string"
+  ) {
+    message = (err as { message: string }).message;
+  }
   setSnapshot({
     status: { state: "error", message },
     pending: snapshot.pending,
