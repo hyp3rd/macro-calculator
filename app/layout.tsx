@@ -17,7 +17,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Macro Calculator",
+  title: "Maqro Calculator",
   description: "Tune your macros, plan your meals, and track your progress.",
 };
 

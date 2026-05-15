@@ -53,7 +53,7 @@ export function Sidebar({ current, onSelect }: Props) {
         <div className="flex h-6 w-6 items-center justify-center rounded bg-foreground text-background">
           <span className="text-[10px] font-bold leading-none">μ</span>
         </div>
-        <span className="text-sm font-semibold tracking-tight">Macro</span>
+        <span className="text-sm font-semibold tracking-tight">Maqro</span>
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
