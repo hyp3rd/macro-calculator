@@ -162,4 +162,55 @@ describe("searchOpenFoodFactsServer", () => {
       /Open Food Facts search failed/,
     );
   });
+
+  it("clamps limit below 1 to 1 in the upstream page_size param", async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ hits: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    ) as unknown as typeof fetch;
+    globalThis.fetch = fetchSpy;
+
+    await searchOpenFoodFactsServer("x", 0);
+    await searchOpenFoodFactsServer("x", -3);
+    await searchOpenFoodFactsServer("x", 99); // clamped down to MAX_LIMIT=10
+
+    const calls = (fetchSpy as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls;
+    const pageSizes = calls.map((c) => {
+      const url = new URL(String(c[0]));
+      return url.searchParams.get("page_size");
+    });
+    expect(pageSizes).toEqual(["1", "1", "10"]);
+  });
+
+  it("times out after 5s when upstream hangs", async () => {
+    vi.useFakeTimers();
+    try {
+      // Mock fetch that never resolves on its own — it only rejects when
+      // the caller's AbortSignal fires, which is what we're testing.
+      globalThis.fetch = vi.fn(
+        (_url: string, init?: { signal?: AbortSignal }) =>
+          new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const e = new Error("aborted");
+              e.name = "AbortError";
+              reject(e);
+            });
+          }),
+      ) as unknown as typeof fetch;
+
+      const pending = searchOpenFoodFactsServer("hangs", 5);
+      // Surface unhandled rejections so the assertion can observe them.
+      pending.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(pending).rejects.toThrow(/timed out after 5s/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

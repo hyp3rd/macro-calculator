@@ -12,6 +12,7 @@ const FIELDS = ["code", "product_name", "brands", "nutriments"].join(",");
 const MAX_LIMIT = 10;
 const USER_AGENT =
   "macro-calculator/0.1 (https://github.com/hyp3rd/macro-calculator)";
+const OFF_TIMEOUT_MS = 5_000;
 
 type OFFHit = {
   code?: string;
@@ -80,12 +81,28 @@ export async function searchOpenFoodFactsServer(
   );
   upstream.searchParams.set("fields", FIELDS);
 
-  const res = await fetch(upstream.toString(), {
-    headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-    // Cache short-lived: subsequent identical AI tool calls within the
-    // same plan won't re-hit upstream.
-    next: { revalidate: 60 },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OFF_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(upstream.toString(), {
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+      signal: controller.signal,
+      // Cache short-lived: subsequent identical AI tool calls within the
+      // same plan won't re-hit upstream.
+      next: { revalidate: 60 },
+    });
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.name === "AbortError" || controller.signal.aborted)
+    ) {
+      throw new Error("Open Food Facts search timed out after 5s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     throw new Error(`Open Food Facts search failed (HTTP ${res.status})`);
   }
