@@ -16,19 +16,35 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from "@/hooks/use-user";
 import { clearAllStores } from "@/lib/db";
-import { buildExport, downloadExport } from "@/lib/export";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { useState } from "react";
 import {
+  buildExport,
+  downloadExport,
+  exportPhaseIndex,
+  type ExportProgress,
+} from "@/lib/export";
+import { planFromFile, planImport, type ImportPlan } from "@/lib/import";
+import {
+  downloadExport as downloadCloudExport,
+  uploadExport,
+} from "@/lib/storage/exports";
+import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { useRef, useState } from "react";
+import {
+  Cloud,
+  CloudUpload,
   Download,
+  Loader2,
   LogIn,
   LogOut,
   Mail,
   ShieldCheck,
   Trash2,
+  Upload,
   UserCircle2,
 } from "lucide-react";
 import Link from "next/link";
+import { CloudExportsList } from "./CloudExportsList";
+import { ImportPreviewDialog } from "./ImportPreviewDialog";
 
 function formatDate(iso: string | undefined): string {
   if (!iso) return "—";
@@ -43,8 +59,23 @@ function formatDate(iso: string | undefined): string {
 
 export function SettingsView() {
   const { user, isLoaded, isUnconfigured } = useUser();
+
+  // Export state: progress-aware, supports save-to-disk and save-to-cloud.
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(
+    null,
+  );
+  const [cloudRefreshKey, setCloudRefreshKey] = useState(0);
+
+  // Import state: preview-then-apply flow. The dialog renders the diff
+  // and runs `importBundle` only after the user clicks Apply.
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importPlan, setImportPlan] = useState<ImportPlan | null>(null);
+  const [importRaw, setImportRaw] = useState<unknown>(null);
+  const [importSource, setImportSource] = useState("");
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   async function signOut() {
     const supabase = getSupabaseBrowser();
@@ -52,20 +83,116 @@ export function SettingsView() {
     await supabase.auth.signOut();
   }
 
-  async function handleExport() {
+  /** Build a fresh export bundle, emitting progress events as each store
+   *  is read. Returns the bundle so the two save paths (disk, cloud) can
+   *  share the build phase. */
+  async function buildWithProgress() {
     setExportError(null);
     setExportBusy(true);
+    setExportProgress(null);
     try {
       const bundle = await buildExport(
         user ? { id: user.id, email: user.email ?? null } : null,
+        (e) => setExportProgress(e),
       );
-      downloadExport(bundle);
+      return bundle;
     } catch (e) {
       setExportError(e instanceof Error ? e.message : "Export failed.");
-    } finally {
-      setExportBusy(false);
+      throw e;
     }
   }
+
+  async function handleExportToDisk() {
+    try {
+      const bundle = await buildWithProgress();
+      downloadExport(bundle);
+    } catch {
+      // buildWithProgress already set the error.
+    } finally {
+      setExportBusy(false);
+      setExportProgress(null);
+    }
+  }
+
+  async function handleExportToCloud() {
+    if (!user) {
+      setExportError("Sign in to save to cloud.");
+      return;
+    }
+    const supabase = getSupabaseBrowser();
+    if (!supabase) {
+      setExportError("Supabase isn't configured.");
+      return;
+    }
+    try {
+      const bundle = await buildWithProgress();
+      await uploadExport(supabase, user.id, bundle);
+      // Bumps the CloudExportsList refreshKey so it pulls the new entry.
+      setCloudRefreshKey((k) => k + 1);
+    } catch (e) {
+      // buildWithProgress sets exportError on its failures; the upload
+      // call can also fail with its own message.
+      if (e instanceof Error) setExportError(e.message);
+    } finally {
+      setExportBusy(false);
+      setExportProgress(null);
+    }
+  }
+
+  /** File-picker → parse → plan → open preview dialog. The dialog runs
+   *  the actual `importBundle` after the user confirms. */
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Clear the input so picking the same file twice in a row re-fires onChange.
+    e.target.value = "";
+    if (!file) return;
+    setImportError(null);
+    setImportBusy(true);
+    try {
+      const { raw, plan } = await planFromFile(file);
+      setImportRaw(raw);
+      setImportPlan(plan);
+      setImportSource(`file ${file.name}`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed.");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  /** Cloud-export-list click → fetch the blob → parse → plan → preview. */
+  async function handleCloudPick(entry: { path: string; exportedAt: string }) {
+    const supabase = getSupabaseBrowser();
+    if (!supabase) {
+      setImportError("Supabase isn't configured.");
+      return;
+    }
+    setImportError(null);
+    setImportBusy(true);
+    try {
+      const blob = await downloadCloudExport(supabase, entry.path);
+      const text = await blob.text();
+      const raw: unknown = JSON.parse(text);
+      const plan = await planImport(raw);
+      setImportRaw(raw);
+      setImportPlan(plan);
+      setImportSource(
+        `cloud export ${new Date(entry.exportedAt).toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })}`,
+      );
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed.");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  const exportStep = exportProgress
+    ? exportPhaseIndex(exportProgress.phase)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -149,37 +276,134 @@ export function SettingsView() {
         <header className="border-b border-border/60 px-5 py-3">
           <h3 className="text-sm font-semibold tracking-tight">Your data</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Download a copy of everything stored in this browser.
+            Export a backup or merge an existing one back in. Save-to-cloud and
+            cloud listings are signed-in only.
           </p>
         </header>
-        <div className="flex items-center justify-between gap-4 px-5 py-4">
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <p>
-              Profile, daily logs, weight history, custom foods, and meal
-              templates — exported as a single JSON file.
-            </p>
-            {exportError && (
-              <p
-                role="alert"
-                className="text-red-600"
-              >
-                {exportError}
+        <div className="space-y-4 px-5 py-4">
+          {/* ─── Export controls ──────────────────────────────────────── */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground">
+              <p>
+                Profile, daily logs, weight history, custom foods, meal
+                templates, and recipes — packaged as a single JSON bundle.
               </p>
-            )}
+              {exportError && (
+                <p
+                  role="alert"
+                  className="text-red-600"
+                >
+                  {exportError}
+                </p>
+              )}
+              {exportProgress && exportStep && (
+                <p className="flex items-center gap-1.5 font-mono text-[11px] text-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Exporting{" "}
+                  {exportProgress.phase === "done"
+                    ? "…"
+                    : `${exportProgress.phase} (${exportStep.step + 1}/${exportStep.total})`}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleExportToDisk}
+                disabled={exportBusy}
+                className="h-8 gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportBusy && !user ? "Preparing…" : "Save to disk"}
+              </Button>
+              {user && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportToCloud}
+                  disabled={exportBusy}
+                  className="h-8 gap-1.5"
+                  title="Upload to your private cloud bucket"
+                >
+                  <CloudUpload className="h-3.5 w-3.5" />
+                  Save to cloud
+                </Button>
+              )}
+            </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            disabled={exportBusy}
-            className="h-8 shrink-0 gap-1.5"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {exportBusy ? "Preparing…" : "Export JSON"}
-          </Button>
+
+          {/* ─── Cloud exports list (signed-in only) ───────────────── */}
+          {user && (
+            <div className="space-y-2 border-t border-border/60 pt-4">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Cloud className="h-3 w-3" />
+                <span>Cloud backups</span>
+              </div>
+              <CloudExportsList
+                refreshKey={cloudRefreshKey}
+                onPickForImport={(entry) => handleCloudPick(entry)}
+              />
+            </div>
+          )}
+
+          {/* ─── Import (always available) ─────────────────────────── */}
+          <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-4">
+            <div className="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground">
+              <p>
+                Restore from a previous export. We show a diff first; nothing is
+                applied until you confirm. Re-importing the same bundle is safe
+                — rows merge by id.
+              </p>
+              {importError && (
+                <p
+                  role="alert"
+                  className="text-red-600"
+                >
+                  {importError}
+                </p>
+              )}
+            </div>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importBusy}
+              className="h-8 shrink-0 gap-1.5"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {importBusy ? "Reading…" : "Import from file"}
+            </Button>
+          </div>
         </div>
       </section>
+
+      <ImportPreviewDialog
+        open={importPlan !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setImportPlan(null);
+            setImportRaw(null);
+          }
+        }}
+        plan={importPlan}
+        raw={importRaw}
+        source={importSource}
+        onApplied={() => {
+          // Force a reload so every hook re-hydrates from IDB.
+          window.setTimeout(() => window.location.reload(), 600);
+        }}
+      />
 
       {user && (
         <DeleteAccountSection
@@ -191,21 +415,30 @@ export function SettingsView() {
   );
 }
 
+/** Three-state form: closed → entering-email → verifying-code → closed.
+ *  Matches the sign-in OTP UX (login/page.tsx) rather than relying on
+ *  Supabase's magic-link, which is fragile cross-device (only works on
+ *  the browser the request originated from). */
+type ChangeEmailStage =
+  | { kind: "closed" }
+  | { kind: "request" }
+  | { kind: "verify"; email: string };
+
 function ChangeEmailSection({ currentEmail }: { currentEmail: string | null }) {
-  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<ChangeEmailStage>({ kind: "closed" });
   const [next, setNext] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
 
   function reset() {
     setNext("");
+    setCode("");
     setError(null);
-    setSent(false);
-    setOpen(false);
+    setStage({ kind: "closed" });
   }
 
-  async function submit(e: React.FormEvent) {
+  async function requestCode(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const trimmed = next.trim().toLowerCase();
@@ -224,15 +457,49 @@ function ChangeEmailSection({ currentEmail }: { currentEmail: string | null }) {
     }
     setBusy(true);
     try {
-      // Supabase sends a confirmation link to *both* the old and new
-      // addresses; the change only takes effect once the link in the new
-      // inbox is clicked. The session here keeps the old email until then.
+      // `updateUser({ email })` triggers Supabase to send a confirmation
+      // email containing both a link and (when the template includes
+      // `{{ .Token }}`) an OTP code. We use the code path.
       const { error: e } = await supabase.auth.updateUser({ email: trimmed });
       if (e) throw e;
-      setSent(true);
+      setStage({ kind: "verify", email: trimmed });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update email.");
+      setError(e instanceof Error ? e.message : "Failed to send confirmation.");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (stage.kind !== "verify") return;
+    setError(null);
+    const token = code.trim();
+    if (!/^\d{4,10}$/.test(token)) {
+      setError("Enter the numeric code from your email.");
+      return;
+    }
+    const supabase = getSupabaseBrowser();
+    if (!supabase) {
+      setError("Supabase isn't configured.");
+      return;
+    }
+    setBusy(true);
+    try {
+      // For an email-change confirmation, Supabase expects the *new*
+      // email + the OTP from that inbox. On success the session's email
+      // claim flips to the new address.
+      const { error: e } = await supabase.auth.verifyOtp({
+        email: stage.email,
+        token,
+        type: "email_change",
+      });
+      if (e) throw e;
+      // Hard navigation so the proxy and every component see the new
+      // session email on the very next request.
+      window.location.assign("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to verify code.");
       setBusy(false);
     }
   }
@@ -246,33 +513,7 @@ function ChangeEmailSection({ currentEmail }: { currentEmail: string | null }) {
         </p>
       </header>
       <div className="space-y-4 px-5 py-4">
-        {sent ? (
-          <div
-            role="status"
-            className="space-y-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs"
-          >
-            <div className="flex items-center gap-2 text-foreground">
-              <Mail className="h-3.5 w-3.5" />
-              <p className="font-medium">Confirmation sent</p>
-            </div>
-            <p className="text-muted-foreground">
-              Click the link in the email sent to{" "}
-              <span className="font-medium text-foreground">{next}</span> to
-              finish the change. You&apos;ll keep using{" "}
-              <span className="font-medium text-foreground">
-                {currentEmail ?? "your current address"}
-              </span>{" "}
-              to sign in until then.
-            </p>
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:text-foreground"
-              onClick={reset}
-            >
-              Done
-            </button>
-          </div>
-        ) : !open ? (
+        {stage.kind === "closed" && (
           <div className="flex items-center justify-between">
             <p className="text-sm">
               <span className="text-muted-foreground">Current:</span>{" "}
@@ -284,16 +525,18 @@ function ChangeEmailSection({ currentEmail }: { currentEmail: string | null }) {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setOpen(true)}
+              onClick={() => setStage({ kind: "request" })}
               className="h-8 gap-1.5"
             >
               <Mail className="h-3.5 w-3.5" />
               Change
             </Button>
           </div>
-        ) : (
+        )}
+
+        {stage.kind === "request" && (
           <form
-            onSubmit={submit}
+            onSubmit={requestCode}
             className="space-y-3"
           >
             <div className="space-y-1.5">
@@ -330,7 +573,79 @@ function ChangeEmailSection({ currentEmail }: { currentEmail: string | null }) {
                 disabled={busy || !next.trim()}
                 className="h-8"
               >
-                {busy ? "Sending…" : "Send confirmation"}
+                {busy ? "Sending…" : "Email me a code"}
+              </Button>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                disabled={busy}
+                onClick={reset}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        {stage.kind === "verify" && (
+          <form
+            onSubmit={verifyCode}
+            className="space-y-3"
+          >
+            <div
+              role="status"
+              className="space-y-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs"
+            >
+              <div className="flex items-center gap-2 text-foreground">
+                <Mail className="h-3.5 w-3.5" />
+                <p className="font-medium">Code sent</p>
+              </div>
+              <p className="text-muted-foreground">
+                Enter the numeric code we emailed to{" "}
+                <span className="font-medium text-foreground">
+                  {stage.email}
+                </span>
+                . The change takes effect as soon as you verify.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="email-change-code"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Code
+              </Label>
+              <Input
+                id="email-change-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d*"
+                autoFocus
+                value={code}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 10))
+                }
+                placeholder="123456"
+                disabled={busy}
+                className="font-mono tracking-widest"
+              />
+            </div>
+            {error && (
+              <p
+                role="alert"
+                className="text-xs text-red-600"
+              >
+                {error}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="submit"
+                size="sm"
+                disabled={busy || !code.trim()}
+                className="h-8"
+              >
+                {busy ? "Verifying…" : "Verify & change"}
               </Button>
               <button
                 type="button"

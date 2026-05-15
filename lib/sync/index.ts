@@ -125,6 +125,37 @@ export async function triggerSync(
   }
 }
 
+/** Per-call timeout for every Supabase request inside `runInitialSync`.
+ *  Far longer than the median round-trip (<1 s) — sized to catch truly
+ *  hung connections rather than slow ones. */
+const CALL_TIMEOUT_MS = 60_000;
+
+/** Run a single Supabase call with a per-call AbortController. Passes the
+ *  signal to the caller so it can be attached via PostgREST's
+ *  `.abortSignal(signal)`. On timeout, throws a labelled Error so the
+ *  sync-status pill can surface a readable reason rather than an
+ *  indefinite spinner. */
+async function withTimeout<T>(
+  label: string,
+  fn: (signal: AbortSignal) => PromiseLike<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+  try {
+    return await fn(controller.signal);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.name === "AbortError" || controller.signal.aborted)
+    ) {
+      throw new Error(`${label} timed out after ${CALL_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Turn a Supabase PostgrestError into a real `Error` so the message
  * survives React's runtime-error overlay (which calls `.toString()` on
  * thrown values — plain objects render as "[object Object]"). Includes
@@ -151,7 +182,9 @@ async function pushProfile(
   const profile = await getProfile();
   if (!profile) return;
   const row = profileToRow(userId, profile);
-  const { error } = await supabase.from("profiles").upsert(row);
+  const { error } = await withTimeout("push profile", (signal) =>
+    supabase.from("profiles").upsert(row).abortSignal(signal),
+  );
   if (error) throw asError(error, "push profile");
   result.pushed.profile = 1;
 }
@@ -164,7 +197,9 @@ async function pushDailyLogs(
   const logs = await listDailyLogs();
   if (logs.length === 0) return;
   const rows = logs.map((l) => dailyLogToRow(userId, l));
-  const { error } = await supabase.from("daily_logs").upsert(rows);
+  const { error } = await withTimeout("push daily logs", (signal) =>
+    supabase.from("daily_logs").upsert(rows).abortSignal(signal),
+  );
   if (error) throw asError(error, "push daily logs");
   result.pushed.dailyLogs = rows.length;
 }
@@ -177,7 +212,9 @@ async function pushWeightEntries(
   const entries = await listWeightEntries();
   if (entries.length === 0) return;
   const rows = entries.map((e) => weightToRow(userId, e));
-  const { error } = await supabase.from("weight_history").upsert(rows);
+  const { error } = await withTimeout("push weight history", (signal) =>
+    supabase.from("weight_history").upsert(rows).abortSignal(signal),
+  );
   if (error) throw asError(error, "push weight history");
   result.pushed.weightEntries = rows.length;
 }
@@ -191,7 +228,9 @@ export async function pushCustomFoods(
   const foods = await listCustomFoods();
   if (foods.length === 0) return;
   const rows = foods.map((f) => customFoodToRow(userId, f));
-  const { error } = await supabase.from("custom_foods").upsert(rows);
+  const { error } = await withTimeout("push custom foods", (signal) =>
+    supabase.from("custom_foods").upsert(rows).abortSignal(signal),
+  );
   if (!error) {
     result.pushed.customFoods = rows.length;
     return;
@@ -209,7 +248,9 @@ export async function pushCustomFoods(
   let pushed = 0;
   for (const food of foods) {
     const row = customFoodToRow(userId, food);
-    const single = await supabase.from("custom_foods").upsert(row);
+    const single = await withTimeout("push custom foods (per-row)", (signal) =>
+      supabase.from("custom_foods").upsert(row).abortSignal(signal),
+    );
     if (!single.error) {
       pushed++;
       continue;
@@ -221,9 +262,14 @@ export async function pushCustomFoods(
     const newId = crypto.randomUUID();
     await upsertCustomFood({ ...food, id: newId });
     await deleteCustomFood(food.id);
-    const retry = await supabase
-      .from("custom_foods")
-      .upsert(customFoodToRow(userId, { ...food, id: newId }));
+    const retry = await withTimeout(
+      "push custom foods (re-mint retry)",
+      (signal) =>
+        supabase
+          .from("custom_foods")
+          .upsert(customFoodToRow(userId, { ...food, id: newId }))
+          .abortSignal(signal),
+    );
     if (retry.error)
       throw asError(retry.error, "push custom foods (re-mint retry)");
     pushed++;
@@ -240,7 +286,9 @@ export async function pushMealTemplates(
   const templates = await listMealTemplates();
   if (templates.length === 0) return;
   const rows = templates.map((t) => mealTemplateToRow(userId, t));
-  const { error } = await supabase.from("meal_templates").upsert(rows);
+  const { error } = await withTimeout("push meal templates", (signal) =>
+    supabase.from("meal_templates").upsert(rows).abortSignal(signal),
+  );
   if (!error) {
     result.pushed.mealTemplates = rows.length;
     return;
@@ -255,7 +303,11 @@ export async function pushMealTemplates(
   let pushed = 0;
   for (const template of templates) {
     const row = mealTemplateToRow(userId, template);
-    const single = await supabase.from("meal_templates").upsert(row);
+    const single = await withTimeout(
+      "push meal templates (per-row)",
+      (signal) =>
+        supabase.from("meal_templates").upsert(row).abortSignal(signal),
+    );
     if (!single.error) {
       pushed++;
       continue;
@@ -266,9 +318,14 @@ export async function pushMealTemplates(
     const newId = crypto.randomUUID();
     await upsertMealTemplate({ ...template, id: newId });
     await deleteMealTemplate(template.id);
-    const retry = await supabase
-      .from("meal_templates")
-      .upsert(mealTemplateToRow(userId, { ...template, id: newId }));
+    const retry = await withTimeout(
+      "push meal templates (re-mint retry)",
+      (signal) =>
+        supabase
+          .from("meal_templates")
+          .upsert(mealTemplateToRow(userId, { ...template, id: newId }))
+          .abortSignal(signal),
+    );
     if (retry.error)
       throw asError(retry.error, "push meal templates (re-mint retry)");
     pushed++;
@@ -285,7 +342,9 @@ export async function pushRecipes(
   const recipes = await listRecipes();
   if (recipes.length === 0) return;
   const rows = recipes.map((r) => recipeToRow(userId, r));
-  const { error } = await supabase.from("recipes").upsert(rows);
+  const { error } = await withTimeout("push recipes", (signal) =>
+    supabase.from("recipes").upsert(rows).abortSignal(signal),
+  );
   if (!error) {
     result.pushed.recipes = rows.length;
     return;
@@ -299,7 +358,9 @@ export async function pushRecipes(
   let pushed = 0;
   for (const recipe of recipes) {
     const row = recipeToRow(userId, recipe);
-    const single = await supabase.from("recipes").upsert(row);
+    const single = await withTimeout("push recipes (per-row)", (signal) =>
+      supabase.from("recipes").upsert(row).abortSignal(signal),
+    );
     if (!single.error) {
       pushed++;
       continue;
@@ -310,9 +371,12 @@ export async function pushRecipes(
     const newId = crypto.randomUUID();
     await upsertRecipe({ ...recipe, id: newId });
     await deleteRecipe(recipe.id);
-    const retry = await supabase
-      .from("recipes")
-      .upsert(recipeToRow(userId, { ...recipe, id: newId }));
+    const retry = await withTimeout("push recipes (re-mint retry)", (signal) =>
+      supabase
+        .from("recipes")
+        .upsert(recipeToRow(userId, { ...recipe, id: newId }))
+        .abortSignal(signal),
+    );
     if (retry.error) throw asError(retry.error, "push recipes (re-mint retry)");
     pushed++;
   }
@@ -326,11 +390,14 @@ async function pullProfile(
   userId: string,
   result: SyncResult,
 ) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("user_id, payload, updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const { data, error } = await withTimeout("pull profile", (signal) =>
+    supabase
+      .from("profiles")
+      .select("user_id, payload, updated_at")
+      .eq("user_id", userId)
+      .abortSignal(signal)
+      .maybeSingle(),
+  );
   if (error) throw asError(error, "pull profile");
   if (!data) return;
   const profile = profileFromRow(data as ProfileRow);
@@ -343,10 +410,13 @@ async function pullDailyLogs(
   userId: string,
   result: SyncResult,
 ) {
-  const { data, error } = await supabase
-    .from("daily_logs")
-    .select("user_id, date, meals, updated_at")
-    .eq("user_id", userId);
+  const { data, error } = await withTimeout("pull daily logs", (signal) =>
+    supabase
+      .from("daily_logs")
+      .select("user_id, date, meals, updated_at")
+      .eq("user_id", userId)
+      .abortSignal(signal),
+  );
   if (error) throw asError(error, "pull daily logs");
   if (!data) return;
   for (const row of data as DailyLogRow[]) {
@@ -361,10 +431,13 @@ async function pullWeightEntries(
   userId: string,
   result: SyncResult,
 ) {
-  const { data, error } = await supabase
-    .from("weight_history")
-    .select("user_id, date, kg, recorded_at, updated_at")
-    .eq("user_id", userId);
+  const { data, error } = await withTimeout("pull weight history", (signal) =>
+    supabase
+      .from("weight_history")
+      .select("user_id, date, kg, recorded_at, updated_at")
+      .eq("user_id", userId)
+      .abortSignal(signal),
+  );
   if (error) throw asError(error, "pull weight history");
   if (!data) return;
   for (const row of data as WeightRow[]) {
@@ -379,12 +452,15 @@ async function pullCustomFoods(
   userId: string,
   result: SyncResult,
 ) {
-  const { data, error } = await supabase
-    .from("custom_foods")
-    .select(
-      "id, user_id, name, protein, carbs, fat, calories, brand, category, sub_category, diet_kind, created_at, updated_at",
-    )
-    .eq("user_id", userId);
+  const { data, error } = await withTimeout("pull custom foods", (signal) =>
+    supabase
+      .from("custom_foods")
+      .select(
+        "id, user_id, name, protein, carbs, fat, calories, brand, category, sub_category, diet_kind, created_at, updated_at",
+      )
+      .eq("user_id", userId)
+      .abortSignal(signal),
+  );
   if (error) throw asError(error, "pull custom foods");
   if (!data) return;
   for (const row of data as CustomFoodRow[]) {
@@ -398,10 +474,13 @@ async function pullMealTemplates(
   userId: string,
   result: SyncResult,
 ) {
-  const { data, error } = await supabase
-    .from("meal_templates")
-    .select("id, user_id, name, foods, created_at, updated_at")
-    .eq("user_id", userId);
+  const { data, error } = await withTimeout("pull meal templates", (signal) =>
+    supabase
+      .from("meal_templates")
+      .select("id, user_id, name, foods, created_at, updated_at")
+      .eq("user_id", userId)
+      .abortSignal(signal),
+  );
   if (error) throw asError(error, "pull meal templates");
   if (!data) return;
   for (const row of data as MealTemplateRow[]) {
@@ -415,12 +494,15 @@ async function pullRecipes(
   userId: string,
   result: SyncResult,
 ) {
-  const { data, error } = await supabase
-    .from("recipes")
-    .select(
-      "id, user_id, name, ingredients, cuisine, notes, created_at, updated_at",
-    )
-    .eq("user_id", userId);
+  const { data, error } = await withTimeout("pull recipes", (signal) =>
+    supabase
+      .from("recipes")
+      .select(
+        "id, user_id, name, ingredients, cuisine, notes, created_at, updated_at",
+      )
+      .eq("user_id", userId)
+      .abortSignal(signal),
+  );
   if (error) throw asError(error, "pull recipes");
   if (!data) return;
   for (const row of data as RecipeRow[]) {
