@@ -2,7 +2,12 @@
  * shapes. The local types use camelCase + epoch ms; Postgres uses
  * snake_case + ISO timestamps. We keep these as plain functions so they
  * can be unit-tested without spinning up Supabase. */
-import type { FoodKind, Meal, PersonalInfo } from "@/components/macro/types";
+import type {
+  FoodKind,
+  Meal,
+  PersonalInfo,
+  Recipe,
+} from "@/components/macro/types";
 import type { CustomFood, DailyLog, MealTemplate, WeightEntry } from "@/lib/db";
 
 // ─── Profile ───────────────────────────────────────────────────────────────
@@ -180,6 +185,46 @@ export function mealTemplateFromRow(row: MealTemplateRow): MealTemplate {
     id: row.id,
     name: row.name,
     foods: row.foods,
+    createdAt: Date.parse(row.created_at),
+    updatedAt: Date.parse(row.updated_at),
+  };
+}
+
+// ─── Recipes ───────────────────────────────────────────────────────────────
+
+export type RecipeRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  ingredients: Recipe["ingredients"];
+  cuisine: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function recipeToRow(
+  userId: string,
+  recipe: Recipe,
+): Omit<RecipeRow, "updated_at"> {
+  return {
+    id: recipe.id,
+    user_id: userId,
+    name: recipe.name,
+    ingredients: recipe.ingredients,
+    cuisine: recipe.cuisine ?? null,
+    notes: recipe.notes ?? null,
+    created_at: new Date(recipe.createdAt).toISOString(),
+  };
+}
+
+export function recipeFromRow(row: RecipeRow): Recipe {
+  return {
+    id: row.id,
+    name: row.name,
+    ingredients: row.ingredients,
+    cuisine: row.cuisine ?? undefined,
+    notes: row.notes ?? undefined,
     createdAt: Date.parse(row.created_at),
     updatedAt: Date.parse(row.updated_at),
   };

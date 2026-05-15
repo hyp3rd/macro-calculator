@@ -5,6 +5,7 @@ import * as React from "react";
 import {
   Activity,
   Calculator,
+  ChefHat,
   LineChart,
   Settings,
   Utensils,
@@ -12,7 +13,13 @@ import {
 import { motion } from "motion/react";
 import { UserMenu } from "./UserMenu";
 
-export type ViewKey = "calculator" | "plan" | "progress" | "foods" | "settings";
+export type ViewKey =
+  | "calculator"
+  | "plan"
+  | "progress"
+  | "foods"
+  | "recipes"
+  | "settings";
 
 type NavItem = {
   key: ViewKey;
@@ -26,6 +33,7 @@ const NAV: NavItem[] = [
   { key: "plan", label: "Meal Plan", icon: Utensils },
   { key: "progress", label: "Progress", icon: LineChart },
   { key: "foods", label: "My Foods", icon: Activity },
+  { key: "recipes", label: "Recipes", icon: ChefHat },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 

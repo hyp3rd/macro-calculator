@@ -54,6 +54,44 @@ export type FoodItem = {
 
 export type Meal = { id: number; name: string; foods: FoodItem[] };
 
+/** One ingredient in a saved Recipe. We store the catalog reference by
+ *  name (matching how `MealTemplate.foods` already works) plus a frozen
+ *  per-100g macro snapshot so the recipe's macros are stable even when an
+ *  OFF result's name normalization drifts or the source food is later
+ *  edited / deleted. Portion is in grams. */
+export type RecipeIngredient = {
+  foodName: string;
+  /** Per-100g macros at recipe-save time. Falls back here when the live
+   * catalog can't resolve `foodName`. */
+  macrosPer100g: {
+    protein: number;
+    carbs: number;
+    fat: number;
+    calories: number;
+  };
+  portionGrams: number;
+  /** Optional classification snapshot so `recipeDietCompatibility` doesn't
+   *  re-classify against a possibly-stale catalog every time. `undefined`
+   *  means "unknown" (omnivore-only by the diet filter's convention). */
+  dietKind?: FoodKind;
+};
+
+/** A user-saved recipe — a named bundle of ingredients with optional prep
+ *  notes and a cuisine tag. Macros are computed deterministically from the
+ *  per-ingredient snapshot × portion. Diet compatibility is derived on the
+ *  fly from `dietKind`s so it never drifts. */
+export type Recipe = {
+  id: string;
+  name: string;
+  ingredients: RecipeIngredient[];
+  /** Free-text, with `CUISINES` as autocomplete hints in the form. */
+  cuisine?: string;
+  /** Optional prep notes — ≤500 chars, plain text. */
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 /** Mifflin-St Jeor only distinguishes between two formulas (+5 vs -161).
  * We keep the form inclusive — anyone who doesn't identify as male picks
  * the more conservative ("pessimistic") -161 path so calorie targets

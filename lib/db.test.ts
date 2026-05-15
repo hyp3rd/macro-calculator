@@ -314,6 +314,72 @@ describe("meal templates", () => {
   });
 });
 
+describe("recipes", () => {
+  beforeEach(async () => {
+    await freshDb();
+  });
+
+  const sampleIngredient = {
+    foodName: "Oats",
+    macrosPer100g: { protein: 13, carbs: 67, fat: 7, calories: 389 },
+    portionGrams: 80,
+    dietKind: "plant" as const,
+  };
+
+  it("round-trips a recipe through addRecipe + listRecipes", async () => {
+    const { addRecipe, listRecipes } = await freshDb();
+    const id = await addRecipe({
+      name: "Oats bowl",
+      ingredients: [sampleIngredient],
+      cuisine: "American",
+      notes: "Soak overnight.",
+    });
+    const rows = await listRecipes();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(id);
+    expect(rows[0].name).toBe("Oats bowl");
+    expect(rows[0].ingredients[0].foodName).toBe("Oats");
+    expect(rows[0].createdAt).toBeGreaterThan(0);
+    expect(rows[0].updatedAt).toBe(rows[0].createdAt);
+  });
+
+  it("orders listRecipes newest-first by updatedAt", async () => {
+    const { addRecipe, upsertRecipe, listRecipes } = await freshDb();
+    const oldId = await addRecipe({ name: "Old", ingredients: [] });
+    const newId = await addRecipe({ name: "New", ingredients: [] });
+    // Force old to look 'just updated'
+    const rows = await listRecipes();
+    const old = rows.find((r) => r.id === oldId);
+    expect(old).toBeDefined();
+    if (!old) return;
+    await upsertRecipe({ ...old, updatedAt: old.updatedAt + 10_000 });
+    const ordered = await listRecipes();
+    expect(ordered[0].id).toBe(oldId);
+    expect(ordered[1].id).toBe(newId);
+  });
+
+  it("deleteRecipe removes the record", async () => {
+    const { addRecipe, listRecipes, deleteRecipe } = await freshDb();
+    const id = await addRecipe({ name: "Throwaway", ingredients: [] });
+    await deleteRecipe(id);
+    expect(await listRecipes()).toHaveLength(0);
+  });
+
+  it("upsertRecipe writes at a caller-supplied id (used by sync)", async () => {
+    const { upsertRecipe, listRecipes } = await freshDb();
+    await upsertRecipe({
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "From server",
+      ingredients: [sampleIngredient],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const rows = await listRecipes();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("22222222-2222-4222-8222-222222222222");
+  });
+});
+
 describe("weight history", () => {
   beforeEach(async () => {
     await freshDb();
@@ -385,6 +451,17 @@ describe("clearAllStores", () => {
       name: "Oats bowl",
       foods: SAMPLE_MEALS[0].foods,
     });
+    await db.addRecipe({
+      name: "Throwaway",
+      ingredients: [
+        {
+          foodName: "Oats",
+          macrosPer100g: { protein: 13, carbs: 67, fat: 7, calories: 389 },
+          portionGrams: 80,
+          dietKind: "plant",
+        },
+      ],
+    });
 
     await db.clearAllStores();
 
@@ -393,6 +470,7 @@ describe("clearAllStores", () => {
     expect(await db.listWeightEntries()).toHaveLength(0);
     expect(await db.listCustomFoods()).toHaveLength(0);
     expect(await db.listMealTemplates()).toHaveLength(0);
+    expect(await db.listRecipes()).toHaveLength(0);
   });
 
   it("is idempotent — running on an already-empty DB is a no-op", async () => {

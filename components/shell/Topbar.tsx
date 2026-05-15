@@ -10,6 +10,7 @@ const LABELS: Record<ViewKey, string> = {
   plan: "Meal Plan",
   progress: "Progress",
   foods: "My Foods",
+  recipes: "Recipes",
   settings: "Settings",
 };
 

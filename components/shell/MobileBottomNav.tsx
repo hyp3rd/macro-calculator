@@ -5,6 +5,7 @@ import * as React from "react";
 import {
   Activity,
   Calculator,
+  ChefHat,
   LineChart,
   Settings,
   Utensils,
@@ -23,6 +24,7 @@ const NAV: NavItem[] = [
   { key: "plan", label: "Plan", icon: Utensils },
   { key: "progress", label: "Progress", icon: LineChart },
   { key: "foods", label: "Foods", icon: Activity },
+  { key: "recipes", label: "Recipes", icon: ChefHat },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 

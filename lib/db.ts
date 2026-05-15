@@ -3,17 +3,19 @@ import type {
   FoodItem,
   Meal,
   PersonalInfo,
+  Recipe,
 } from "@/components/macro/types";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 
 const DB_NAME = "macro-calculator";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const STORE_CUSTOM_FOODS = "customFoods";
 const STORE_PROFILE = "profile";
 const STORE_DAILY_LOGS = "dailyLogs";
 const STORE_MEAL_TEMPLATES = "mealTemplates";
 const STORE_WEIGHT_HISTORY = "weightHistory";
+const STORE_RECIPES = "recipes";
 
 /** Single record key under the `profile` store. We only support one
  * profile in phase 2; this constant makes that explicit. */
@@ -58,6 +60,7 @@ interface MacroDB extends DBSchema {
   [STORE_DAILY_LOGS]: { key: string; value: DailyLog };
   [STORE_MEAL_TEMPLATES]: { key: string; value: MealTemplate };
   [STORE_WEIGHT_HISTORY]: { key: string; value: WeightEntry };
+  [STORE_RECIPES]: { key: string; value: Recipe; indexes: { byName: string } };
 }
 
 let dbPromise: Promise<IDBPDatabase<MacroDB>> | null = null;
@@ -111,6 +114,11 @@ function getDB(): Promise<IDBPDatabase<MacroDB>> {
           db.deleteObjectStore(STORE_MEAL_TEMPLATES);
         }
         db.createObjectStore(STORE_MEAL_TEMPLATES, { keyPath: "id" });
+      }
+      // v5 → v6: recipes store. New, additive — no existing data to migrate.
+      if (oldVersion < 6) {
+        const recipes = db.createObjectStore(STORE_RECIPES, { keyPath: "id" });
+        recipes.createIndex("byName", "name", { unique: false });
       }
     },
   });
@@ -306,10 +314,50 @@ export async function deleteWeightEntry(date: string): Promise<void> {
   await db.delete(STORE_WEIGHT_HISTORY, date);
 }
 
+// ─── Recipes ───────────────────────────────────────────────────────────────
+
+/** Save a new recipe. Mints a client-side UUID so the same id is shared
+ *  with Supabase (mirrors meal templates). */
+export async function addRecipe(
+  recipe: Omit<Recipe, "id" | "createdAt" | "updatedAt">,
+): Promise<string> {
+  const db = await getDB();
+  const now = Date.now();
+  const id = mintId();
+  await db.put(STORE_RECIPES, {
+    ...recipe,
+    id,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+/** Upsert a recipe at a specific id. Used by the sync layer to write
+ *  server-sourced rows into local storage without minting a fresh id, and
+ *  by the edit flow to update an existing recipe in place. */
+export async function upsertRecipe(recipe: Recipe): Promise<void> {
+  const db = await getDB();
+  await db.put(STORE_RECIPES, recipe);
+}
+
+export async function listRecipes(): Promise<Recipe[]> {
+  const db = await getDB();
+  const rows = await db.getAll(STORE_RECIPES);
+  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function deleteRecipe(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete(STORE_RECIPES, id);
+}
+
+// ─── Bulk ──────────────────────────────────────────────────────────────────
+
 /** Wipes every store. Used by the Delete account flow so a future sign-in
  * on the same device starts from a truly empty slate (otherwise the next
  * sync would push the leftover rows into the new user's account). Runs
- * in a single transaction so a mid-flight failure either clears all five
+ * in a single transaction so a mid-flight failure either clears all
  * stores or none — no half-state. */
 export async function clearAllStores(): Promise<void> {
   const db = await getDB();
@@ -320,6 +368,7 @@ export async function clearAllStores(): Promise<void> {
       STORE_DAILY_LOGS,
       STORE_MEAL_TEMPLATES,
       STORE_WEIGHT_HISTORY,
+      STORE_RECIPES,
     ],
     "readwrite",
   );
@@ -329,6 +378,7 @@ export async function clearAllStores(): Promise<void> {
     tx.objectStore(STORE_DAILY_LOGS).clear(),
     tx.objectStore(STORE_MEAL_TEMPLATES).clear(),
     tx.objectStore(STORE_WEIGHT_HISTORY).clear(),
+    tx.objectStore(STORE_RECIPES).clear(),
     tx.done,
   ]);
 }

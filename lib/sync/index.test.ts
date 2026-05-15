@@ -11,6 +11,7 @@ vi.mock("@/lib/db", () => ({
   listCustomFoods: vi.fn(),
   listDailyLogs: vi.fn(),
   listMealTemplates: vi.fn(),
+  listRecipes: vi.fn(),
   listWeightEntries: vi.fn(),
   getProfile: vi.fn(),
   saveDailyLog: vi.fn(),
@@ -18,8 +19,10 @@ vi.mock("@/lib/db", () => ({
   saveWeightEntry: vi.fn(),
   upsertCustomFood: vi.fn(),
   upsertMealTemplate: vi.fn(),
+  upsertRecipe: vi.fn(),
   deleteCustomFood: vi.fn(),
   deleteMealTemplate: vi.fn(),
+  deleteRecipe: vi.fn(),
 }));
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -32,6 +35,7 @@ function newResult(): SyncResult {
       weightEntries: 0,
       customFoods: 0,
       mealTemplates: 0,
+      recipes: 0,
     },
     pulled: {
       profile: 0,
@@ -39,6 +43,7 @@ function newResult(): SyncResult {
       weightEntries: 0,
       customFoods: 0,
       mealTemplates: 0,
+      recipes: 0,
     },
   };
 }

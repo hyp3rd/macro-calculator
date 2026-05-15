@@ -1,4 +1,4 @@
-import type { PersonalInfo } from "@/components/macro/types";
+import type { PersonalInfo, Recipe } from "@/components/macro/types";
 import type { CustomFood, DailyLog, MealTemplate, WeightEntry } from "@/lib/db";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +8,8 @@ import {
   dailyLogToRow,
   mealTemplateFromRow,
   mealTemplateToRow,
+  recipeFromRow,
+  recipeToRow,
   profileFromRow,
   profileToRow,
   weightFromRow,
@@ -253,5 +255,60 @@ describe("meal template mappers", () => {
       updated_at: "2026-05-13T09:00:00.000Z",
     });
     expect(back).toEqual(TEMPLATE);
+  });
+});
+
+describe("recipe mappers", () => {
+  const RECIPE: Recipe = {
+    id: "44444444-4444-4444-8444-444444444444",
+    name: "Oats bowl",
+    ingredients: [
+      {
+        foodName: "Oats",
+        macrosPer100g: { protein: 13, carbs: 67, fat: 7, calories: 389 },
+        portionGrams: 80,
+        dietKind: "plant",
+      },
+      {
+        foodName: "Almond butter",
+        macrosPer100g: { protein: 21, carbs: 19, fat: 56, calories: 614 },
+        portionGrams: 20,
+        dietKind: "plant",
+      },
+    ],
+    cuisine: "American",
+    notes: "Soak overnight.",
+    createdAt: Date.parse("2026-05-13T08:00:00Z"),
+    updatedAt: Date.parse("2026-05-13T09:00:00Z"),
+  };
+
+  it("round-trips recipe with all optional fields populated", () => {
+    const row = recipeToRow(USER, RECIPE);
+    const back = recipeFromRow({
+      ...row,
+      user_id: USER,
+      updated_at: "2026-05-13T09:00:00.000Z",
+    });
+    expect(back).toEqual(RECIPE);
+  });
+
+  it("translates undefined cuisine/notes into nullable columns", () => {
+    const slim: Recipe = {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "Slim",
+      ingredients: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const row = recipeToRow(USER, slim);
+    expect(row.cuisine).toBeNull();
+    expect(row.notes).toBeNull();
+    const back = recipeFromRow({
+      ...row,
+      user_id: USER,
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    expect(back.cuisine).toBeUndefined();
+    expect(back.notes).toBeUndefined();
   });
 });

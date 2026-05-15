@@ -91,6 +91,7 @@ interface MealPlannerProps {
   onOpenCustomFoodForm: () => void;
   onSaveAsTemplate: (mealId: number) => void;
   onAddFromTemplate: (mealId: number) => void;
+  onApplyRecipe: (mealId: number) => void;
 }
 
 const MealPlanner: React.FC<MealPlannerProps> = ({
@@ -135,6 +136,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   onOpenCustomFoodForm,
   onSaveAsTemplate,
   onAddFromTemplate,
+  onApplyRecipe,
 }) => {
   const isError = mealPlanMessage.toLowerCase().includes("error");
   const dayIsEmpty = meals.every((m) => m.foods.length === 0);
@@ -326,6 +328,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
                 removeFood={removeFood}
                 onSaveAsTemplate={onSaveAsTemplate}
                 onAddFromTemplate={onAddFromTemplate}
+                onApplyRecipe={onApplyRecipe}
               />
             ))}
           </div>

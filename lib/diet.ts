@@ -1,4 +1,9 @@
-import type { DietPreference, Food, FoodKind } from "@/components/macro/types";
+import type {
+  DietPreference,
+  Food,
+  FoodKind,
+  Recipe,
+} from "@/components/macro/types";
 
 /** What kind of food this is in animal-vs-plant terms. `FoodKind` is the
  * user-facing enum (no "unknown"). The classifier extends it with
@@ -68,9 +73,54 @@ export function isCompatibleWithDiet(
   food: Food,
   diet: DietPreference,
 ): boolean {
-  const kind = classifyFood(food);
-  if (kind === "unknown") return diet === "omnivore";
+  return isKindCompatibleWithDiet(classifyFood(food), diet);
+}
 
+/** Filter a Food[] down to items the user can eat. */
+export function filterByDiet(foods: Food[], diet: DietPreference): Food[] {
+  return foods.filter((f) => isCompatibleWithDiet(f, diet));
+}
+
+const ALL_DIETS: readonly DietPreference[] = [
+  "omnivore",
+  "vegetarian",
+  "vegan",
+  "pescatarian",
+  "carnivore",
+];
+
+/** Which diet preferences a recipe is suitable for, derived from its
+ *  ingredients' `dietKind` snapshots. A recipe is suitable for a diet iff
+ *  every ingredient is suitable for that diet. An empty-ingredient recipe
+ *  returns the full set (vacuously suitable) so the picker doesn't hide a
+ *  freshly-created empty draft.
+ *
+ *  Unlike `isCompatibleWithDiet`, this only consults the snapshot stored
+ *  on the recipe — never re-fetches the catalog — so the result is stable
+ *  as ingredient sources are edited / deleted elsewhere. */
+export function recipeDietCompatibility(recipe: Recipe): Set<DietPreference> {
+  const result = new Set<DietPreference>(ALL_DIETS);
+  for (const ing of recipe.ingredients) {
+    const kind = ing.dietKind ?? "unknown";
+    for (const diet of ALL_DIETS) {
+      if (!isKindCompatibleWithDiet(kind, diet) && result.has(diet)) {
+        result.delete(diet);
+      }
+    }
+    if (result.size === 0) return result;
+  }
+  return result;
+}
+
+/** Pure diet-vs-kind compatibility check — same rules as
+ *  `isCompatibleWithDiet` but operating on a pre-classified kind. Exported
+ *  for tests; the public surface is `isCompatibleWithDiet` /
+ *  `recipeDietCompatibility`. */
+export function isKindCompatibleWithDiet(
+  kind: ClassifiedKind,
+  diet: DietPreference,
+): boolean {
+  if (kind === "unknown") return diet === "omnivore";
   switch (diet) {
     case "omnivore":
       return true;
@@ -81,15 +131,8 @@ export function isCompatibleWithDiet(
     case "vegan":
       return kind === "plant";
     case "carnivore":
-      // Animal-derived foods only. Honey is borderline; we include it
-      // since most carnivore protocols allow it as a pure animal sugar.
       return kind !== "plant";
   }
-}
-
-/** Filter a Food[] down to items the user can eat. */
-export function filterByDiet(foods: Food[], diet: DietPreference): Food[] {
-  return foods.filter((f) => isCompatibleWithDiet(f, diet));
 }
 
 /** Human-readable label per kind — used by the My Foods view + the
