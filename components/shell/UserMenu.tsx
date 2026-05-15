@@ -9,22 +9,42 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useUser } from "@/hooks/use-user";
+import { getProfile } from "@/lib/db";
+import { subscribeProfileChanged } from "@/lib/profile-bus";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
 import { LogIn, LogOut } from "lucide-react";
 import Link from "next/link";
 
-/** Sidebar footer chip. Three states:
+type UserMenuProps = {
+  /** Compact mode: render just the avatar (no name text), suitable for
+   * the mobile topbar where horizontal space is tight. The full name +
+   * email still appear inside the dropdown content. */
+  compact?: boolean;
+};
+
+/** Sidebar footer chip (or topbar avatar in compact mode). Three states:
  *   - Loading: muted "…" placeholder while the auth client resolves.
  *   - Signed out (or unconfigured): "Sign in" link to /login.
  *   - Signed in: avatar + email + dropdown with Sign out. */
-export function UserMenu() {
+export function UserMenu({ compact = false }: UserMenuProps = {}) {
   const { user, isLoaded, isUnconfigured } = useUser();
+  const displayName = useDisplayName();
 
   if (!isLoaded) {
     return (
-      <div className="flex h-9 items-center gap-2.5 rounded-md px-2.5">
+      <div
+        className={
+          compact
+            ? "flex h-8 items-center"
+            : "flex h-9 items-center gap-2.5 rounded-md px-2.5"
+        }
+      >
         <div className="h-6 w-6 animate-pulse rounded-full bg-muted" />
-        <div className="h-2 w-16 animate-pulse rounded bg-muted" />
+        {!compact && (
+          <div className="h-2 w-16 animate-pulse rounded bg-muted" />
+        )}
       </div>
     );
   }
@@ -33,7 +53,10 @@ export function UserMenu() {
     return (
       <Link
         href="/login"
-        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        className={cn(
+          "flex items-center gap-2.5 rounded-md text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+          compact ? "h-8 w-8 justify-center" : "w-full px-2.5 py-1.5",
+        )}
         title={
           isUnconfigured
             ? "Supabase not configured — see README"
@@ -43,15 +66,18 @@ export function UserMenu() {
         <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] font-medium">
           <LogIn className="h-3 w-3" />
         </div>
-        <span className="flex-1 text-left">
-          {isUnconfigured ? "Guest" : "Sign in"}
-        </span>
+        {!compact && (
+          <span className="flex-1 text-left">
+            {isUnconfigured ? "Guest" : "Sign in"}
+          </span>
+        )}
       </Link>
     );
   }
 
   const email = user.email ?? "Signed in";
-  const initial = (user.email?.[0] ?? "?").toUpperCase();
+  const primary = displayName ?? email;
+  const initial = (displayName?.[0] ?? user.email?.[0] ?? "?").toUpperCase();
 
   async function signOut() {
     const supabase = getSupabaseBrowser();
@@ -64,12 +90,18 @@ export function UserMenu() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
+          className={cn(
+            "flex items-center gap-2.5 rounded-md text-sm text-foreground transition-colors hover:bg-accent",
+            compact ? "h-8 w-8 justify-center" : "w-full px-2.5 py-1.5",
+          )}
+          aria-label={compact ? primary : undefined}
         >
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-[11px] font-medium text-background">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[11px] font-medium text-background">
             {initial}
           </div>
-          <span className="flex-1 truncate text-left">{email}</span>
+          {!compact && (
+            <span className="flex-1 truncate text-left">{primary}</span>
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -78,7 +110,14 @@ export function UserMenu() {
         className="w-56"
       >
         <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
-          {email}
+          {displayName ? (
+            <>
+              <span className="block text-foreground">{displayName}</span>
+              <span className="block text-[10px]">{email}</span>
+            </>
+          ) : (
+            email
+          )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -91,4 +130,35 @@ export function UserMenu() {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** Reads the optional `displayName` field from the persisted profile and
+ * keeps it fresh by subscribing to `profile-bus` notifications. We don't
+ * use `useProfile` here because it owns a debounced *write* loop — the
+ * sidebar should be read-only and not race with the form's writes. */
+function useDisplayName(): string | null {
+  const [name, setName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      getProfile()
+        .then((p) => {
+          if (cancelled) return;
+          const v = (p?.displayName ?? "").trim();
+          setName(v.length > 0 ? v : null);
+        })
+        .catch(() => {
+          if (!cancelled) setName(null);
+        });
+    };
+    load();
+    const off = subscribeProfileChanged(load);
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
+  return name;
 }

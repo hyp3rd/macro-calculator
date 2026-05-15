@@ -2,6 +2,7 @@
 
 import type { PersonalInfo } from "@/components/macro/types";
 import { getProfile, saveProfile, saveWeightEntry, todayKey } from "@/lib/db";
+import { notifyProfileChanged } from "@/lib/profile-bus";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -61,7 +62,15 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
   useEffect(() => {
     if (!isHydrated) return;
     const t = window.setTimeout(() => {
-      saveProfile(profile).then(reportStorageOk).catch(reportStorageError);
+      saveProfile(profile)
+        .then(() => {
+          reportStorageOk();
+          // Tell other components (the sidebar UserMenu, primarily) that
+          // the profile they may be reading independently from IDB has a
+          // fresh value to pick up.
+          notifyProfileChanged();
+        })
+        .catch(reportStorageError);
     }, WRITE_DEBOUNCE_MS);
     return () => window.clearTimeout(t);
   }, [profile, isHydrated]);

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { MobileBottomNav } from "./MobileBottomNav";
 import { Sidebar, type ViewKey } from "./Sidebar";
 import { StorageBanner } from "./StorageBanner";
 import { SyncManager } from "./SyncManager";
@@ -13,12 +14,17 @@ type Props = {
   children: React.ReactNode;
 };
 
-/** Top-level app chrome: sidebar nav on the left, topbar on top, animated
- * content area filling the rest. The animated wrapper keys off `current` so
- * switching sidebar items produces a soft fade/translate transition. */
+/** Top-level app chrome: sidebar nav on the left (desktop) or bottom tab
+ * bar (mobile), topbar on top, animated content area filling the rest.
+ *
+ * Layout invariant: the outer container is exactly viewport height
+ * (`h-screen`), the main column is the only thing that scrolls. This keeps
+ * the sidebar footer (UserMenu) pinned to the bottom and the mobile bottom
+ * nav above the keyboard. The animated wrapper keys off `current` so
+ * switching nav items produces a soft fade/translate transition. */
 export function AppShell({ current, onSelect, children }: Props) {
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex h-screen bg-background text-foreground">
       <SyncManager />
       <Sidebar
         current={current}
@@ -38,13 +44,20 @@ export function AppShell({ current, onSelect, children }: Props) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
-              className="mx-auto w-full max-w-6xl px-6 py-8 lg:py-10"
+              // Bottom padding on mobile clears the fixed bottom tab bar
+              // (h-14 + safe-area). Desktop has the sidebar instead, no
+              // bottom obstruction → no extra padding needed.
+              className="mx-auto w-full max-w-6xl px-6 py-8 pb-24 md:pb-8 lg:py-10 lg:pb-10"
             >
               {children}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
+      <MobileBottomNav
+        current={current}
+        onSelect={onSelect}
+      />
     </div>
   );
 }

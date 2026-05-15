@@ -1,6 +1,6 @@
 import * as db from "@/lib/db";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { pushCustomFoods, pushMealTemplates, type SyncResult } from "./index";
 
 // Mock the IDB-backed db module so the sync code is exercised in

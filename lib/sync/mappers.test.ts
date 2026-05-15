@@ -27,6 +27,7 @@ const PROFILE: PersonalInfo = {
   dietPreference: "omnivore",
   cuisinePreferences: [],
   allergies: [],
+  dislikedFoods: [],
   weeklyRateKg: 0.5,
   manualTdee: null,
 };
@@ -55,6 +56,24 @@ describe("profile mappers", () => {
     const back = profileFromRow({ ...row, updated_at: "2026-05-13T10:00:00Z" });
     expect(back.cuisinePreferences).toEqual(["Italian", "Japanese", "Korean"]);
     expect(back.allergies).toEqual(["peanuts", "shellfish"]);
+  });
+
+  it("preserves displayName, dislikedFoods, and macroSplit through the JSONB blob", () => {
+    // The JSONB-passthrough mapper makes adding fields cheap, but the
+    // round-trip is the only thing pinning that contract. If anyone ever
+    // converts profileToRow/profileFromRow into an explicit field-by-field
+    // mapper, this test fails first.
+    const profile: PersonalInfo = {
+      ...PROFILE,
+      displayName: "Alex",
+      dislikedFoods: ["oats", "broccoli"],
+      macroSplit: { protein: 40, carbs: 35, fat: 25 },
+    };
+    const row = profileToRow(USER, profile);
+    const back = profileFromRow({ ...row, updated_at: "2026-05-13T10:00:00Z" });
+    expect(back.displayName).toBe("Alex");
+    expect(back.dislikedFoods).toEqual(["oats", "broccoli"]);
+    expect(back.macroSplit).toEqual({ protein: 40, carbs: 35, fat: 25 });
   });
 });
 

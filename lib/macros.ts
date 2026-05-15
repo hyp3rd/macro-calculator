@@ -37,28 +37,49 @@ export function computeMacros(p: PersonalInfo): CalculatedValues {
   let proteinRatio: number;
   let fatRatio: number;
   let carbRatio: number;
-  if (p.goal === "lose") {
-    proteinRatio = 0.4;
-    fatRatio = 0.35;
-    carbRatio = 0.25;
-  } else if (p.goal === "gain") {
-    proteinRatio = 0.3;
-    fatRatio = 0.25;
-    carbRatio = 0.45;
-  } else {
-    proteinRatio = 0.3;
-    fatRatio = 0.3;
-    carbRatio = 0.4;
-  }
 
-  if (p.dietType === "lowCarb") {
-    carbRatio = Math.max(0.15, carbRatio - 0.2);
-    proteinRatio = Math.min(0.4, proteinRatio + 0.05);
-    fatRatio = 1 - proteinRatio - carbRatio;
-  } else if (p.dietType === "lowFat") {
-    fatRatio = Math.max(0.15, fatRatio - 0.15);
-    proteinRatio = Math.min(0.4, proteinRatio + 0.05);
-    carbRatio = 1 - proteinRatio - fatRatio;
+  // Manual override wins. The user provides percentages (any non-negative
+  // numbers); we re-normalize to ratios that sum to 1 so a slightly-off
+  // sum (e.g. 30/30/30) still yields valid targets. If everything is zero
+  // or non-finite the override is treated as missing — fall back to the
+  // goal-aware default below.
+  const split = p.macroSplit ?? null;
+  const overrideSum = split
+    ? Math.max(split.protein, 0) +
+      Math.max(split.carbs, 0) +
+      Math.max(split.fat, 0)
+    : 0;
+  const useOverride =
+    split !== null && Number.isFinite(overrideSum) && overrideSum > 0;
+
+  if (useOverride && split) {
+    proteinRatio = Math.max(split.protein, 0) / overrideSum;
+    carbRatio = Math.max(split.carbs, 0) / overrideSum;
+    fatRatio = Math.max(split.fat, 0) / overrideSum;
+  } else {
+    if (p.goal === "lose") {
+      proteinRatio = 0.4;
+      fatRatio = 0.35;
+      carbRatio = 0.25;
+    } else if (p.goal === "gain") {
+      proteinRatio = 0.3;
+      fatRatio = 0.25;
+      carbRatio = 0.45;
+    } else {
+      proteinRatio = 0.3;
+      fatRatio = 0.3;
+      carbRatio = 0.4;
+    }
+
+    if (p.dietType === "lowCarb") {
+      carbRatio = Math.max(0.15, carbRatio - 0.2);
+      proteinRatio = Math.min(0.4, proteinRatio + 0.05);
+      fatRatio = 1 - proteinRatio - carbRatio;
+    } else if (p.dietType === "lowFat") {
+      fatRatio = Math.max(0.15, fatRatio - 0.15);
+      proteinRatio = Math.min(0.4, proteinRatio + 0.05);
+      carbRatio = 1 - proteinRatio - fatRatio;
+    }
   }
 
   return {

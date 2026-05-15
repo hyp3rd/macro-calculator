@@ -11,6 +11,9 @@ export type AiPlanRequest = {
   cuisinePreferences: string[];
   /** Hard-filter list of allergens / foods to avoid. */
   allergies: string[];
+  /** Soft signal — foods the user dislikes but isn't allergic to. The AI
+   * is asked to avoid them when it can. Not enforced server-side. */
+  dislikedFoods: string[];
 };
 
 /** Result of asking the AI for a meal plan. `kind: "ok"` always carries

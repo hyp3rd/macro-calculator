@@ -35,16 +35,20 @@ export function Sidebar({ current, onSelect }: Props) {
   return (
     <aside
       aria-label="Primary navigation"
-      className="hidden md:flex md:w-60 md:flex-col md:border-r md:border-border/60 md:bg-background"
+      // h-full + overflow-hidden + flex-col makes the inner <nav> the only
+      // scrolling area, so the footer (UserMenu) stays pinned to the bottom
+      // even with a long nav list. Parent (AppShell) is h-screen so this
+      // resolves to viewport height.
+      className="hidden h-full overflow-hidden md:flex md:w-60 md:flex-col md:border-r md:border-border/60 md:bg-background"
     >
-      <div className="flex h-14 items-center gap-2 border-b border-border/60 px-5">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-5">
         <div className="flex h-6 w-6 items-center justify-center rounded bg-foreground text-background">
           <span className="text-[10px] font-bold leading-none">μ</span>
         </div>
         <span className="text-sm font-semibold tracking-tight">Macro</span>
       </div>
 
-      <nav className="flex-1 space-y-0.5 p-2">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
         {NAV.map((item) => {
           const Icon = item.icon;
           const isActive = item.key === current;
@@ -85,7 +89,7 @@ export function Sidebar({ current, onSelect }: Props) {
         })}
       </nav>
 
-      <div className="border-t border-border/60 p-2">
+      <div className="shrink-0 border-t border-border/60 p-2">
         <UserMenu />
       </div>
     </aside>
