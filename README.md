@@ -1,7 +1,7 @@
 # Maqro
 
 A personal macro calculator, meal planner, and weight-tracking journal.
-Next.js app with a Supabase-backed optional account for multi-device sync —
+Next.js app with a Supabase-backed optional account for multi-device sync -
 or run it fully local in **guest mode** and everything lives in your
 browser's IndexedDB.
 
@@ -499,7 +499,7 @@ Done:
   event loop every 50 rows, so a 1000-row import never freezes the
   tab); Supabase Storage as a second export target with a per-user
   private bucket and a Settings panel that lists, downloads, and
-  deletes cloud copies; preview-before-apply imports — every Import
+  deletes cloud copies; preview-before-apply imports - every Import
   surfaces a diff dialog (per-table counts of new / updated /
   unchanged / skipped, profile shown as a single tag) and applies
   nothing until the user confirms. Imports run with the same progress
