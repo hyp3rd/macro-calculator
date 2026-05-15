@@ -40,8 +40,13 @@ browser's IndexedDB.
 - **Account (optional)** passwordless email OTP sign-in via Supabase.
   Once signed in, profile + logs + weight history + custom foods + meal
   templates + recipes sync across devices on each sign-in (one-shot
-  reconcile, not a live channel). Includes change-email, export-as-JSON,
-  and a type-your-email-to-confirm delete-account flow.
+  reconcile, not a live channel). Settings → Your data offers
+  Save-to-disk and Save-to-cloud exports (the latter writes to a private
+  per-user Storage bucket, listed in the same panel with download +
+  delete actions), import from file or cloud with a diff preview before
+  anything is applied (per-table counts of new / updated / unchanged /
+  skipped), an OTP-code change-email flow, and a type-your-email
+  delete-account flow.
 
 ## Stack
 
@@ -122,7 +127,9 @@ fine without it sign-in is disabled and the app stays on IndexedDB.
    you should see six tables under **Table Editor**: `profiles`,
    `daily_logs`, `weight_history`, `custom_foods`, `meal_templates`,
    `recipes`, each with row-level security so users only see their own
-   rows.
+   rows. The fourth migration (`0004_exports_storage.sql`) creates a
+   private `exports` Storage bucket with the same per-user RLS pattern;
+   it's used by the **Save to cloud** button in Settings → Your data.
 
    Other db scripts:
 
@@ -174,6 +181,12 @@ migration list`) so reviewers can see exactly what will land at merge.
 
    Without this change the email contains only a link and there's no
    code to paste the link will still work but it's the brittle path.
+
+   **Apply the same change to the "Change Email Address" template.** The
+   in-app email-change flow (Settings → Email → Change) uses the OTP-code
+   path too, so the change-email template needs the same `{{ .Token }}`
+   block. Without it, the form will sit waiting for a code that isn't in
+   the email.
 
 1. Restart `npm run dev`. The sidebar should now show "Sign in" instead
    of "Guest".
@@ -381,7 +394,9 @@ lib/
   ai/off-search.ts                # Server-side OFF wrapper (5s timeout, used by both AI routes)
   ai/plan.ts                      # AI meal-plan response → Meal[] converter (catalog matching, portion clamp/snap)
   ai/recipe.ts                    # AI recipe submit → Recipe converter (same matching + macro snapshot)
-  export.ts                       # Bundle IDB → downloadable JSON
+  export.ts                       # Bundle IDB → JSON (progress events, disk + cloud sinks)
+  import.ts                       # planImport (diff preview) + importBundle (progress, merge-by-id)
+  storage/exports.ts              # Supabase Storage helpers for the `exports` bucket
   storage-status.ts               # IDB availability detection
   sync-status.ts                  # Sync pill global store (useSyncExternalStore)
   sync/index.ts                   # runInitialSync, triggerSync (push + pull)
@@ -397,6 +412,7 @@ supabase/
   migrations/0001_init.sql        # Tables + RLS for the first five stores
   migrations/0002_custom_foods_diet_kind.sql  # Adds diet_kind to custom_foods
   migrations/0003_recipes.sql     # Adds the recipes table + RLS + updated_at trigger
+  migrations/0004_exports_storage.sql  # Private `exports` Storage bucket + per-user RLS
 tests/e2e/smoke.spec.ts           # Playwright smoke
 ```
 
@@ -467,24 +483,44 @@ Done:
   agent-loop hardening: prompt caching, OFF-search timeout, in-loop
   validation feedback when the model paraphrases names past matching.
   Stored client-minted in `recipes` IDB store + Supabase table with RLS.
+- **Phase 8 (Resilience + portability)** Per-call 60 s timeout +
+  `AbortSignal` on every Supabase call inside `runInitialSync` (a hung
+  network turns into "Sync error" instead of an indefinite spinner);
+  change-email migrated to the OTP-code paste flow (same UX as sign-in,
+  works cross-device, no fragile magic links); JSON import as the dual
+  of [`lib/export.ts`](lib/export.ts), merge-by-id so re-importing the
+  same file is idempotent and v1 bundles forward-import into the v2
+  schema; Playwright auth + sync spec that mints a session via the
+  service-role key, asserts the sync pill cycles to "Synced", and signs
+  out (skips locally when `SUPABASE_SECRET_KEY` /
+  `E2E_TEST_USER_EMAIL` aren't set).
+- **Phase 9 (Export/import polish)** Progress events on both the
+  export build and the import apply (per-phase counters yielded to the
+  event loop every 50 rows, so a 1000-row import never freezes the
+  tab); Supabase Storage as a second export target with a per-user
+  private bucket and a Settings panel that lists, downloads, and
+  deletes cloud copies; preview-before-apply imports — every Import
+  surfaces a diff dialog (per-table counts of new / updated /
+  unchanged / skipped, profile shown as a single tag) and applies
+  nothing until the user confirms. Imports run with the same progress
+  reporting as exports so large applies stream visible feedback.
 
-Possibly next (not committed, in rough priority order):
+Possibly next (not committed):
 
-- **Defensive sync** 60s timeout + `AbortSignal` on every Supabase call
-  inside `runInitialSync` so an upstream hang turns into "Sync error"
-  rather than an indefinite spinner.
-- **Auth + sync E2E coverage** Playwright spec that signs in, asserts
-  the sync pill cycles to "Synced", signs out. Gated on env so it skips
-  locally without creds.
-- **Change-email via OTP code** match the sign-in UX. Today it uses
-  Supabase's confirmation link, which is fragile cross-device for the
-  same reason we abandoned PKCE links at sign-in.
-- **JSON import** the dual of `lib/export.ts`. Currently you can take
-  your data out; you can't put it back in.
+- **Cross-instance OFF cache** Currently the Open Food Facts proxy
+  caches at the edge (60 s) and the AI route caches via Next.js Data
+  Cache (per-server-instance). A small Redis (or Vercel KV) layer would
+  make a freshly-warmed instance just as fast as a hot one. Only worth
+  it once we see cold-start OFF latency in the wild.
+- **Recipe scale-by-N** Apply-recipe currently expands ingredients at
+  their saved portions. A "scale by N servings" slider would let one
+  recipe drive multiple meal-slot apply-sizes.
 
 ## Status
 
-`make ci` green: lint 0, tsc 0, **176 unit tests** across 15 files, build,
-security audit. 3 Playwright smoke tests pass against the dev server.
+`make ci` green: lint 0, tsc 0, **205 unit tests** across 17 files, build,
+security audit. 3 Playwright smoke tests pass against the dev server, plus
+the auth + sync spec which is gated on real Supabase credentials and skips
+otherwise.
 
 [Apache License 2.0](./LICENSE)

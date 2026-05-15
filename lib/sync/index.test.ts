@@ -49,10 +49,20 @@ function newResult(): SyncResult {
 }
 
 /** Build a tiny Supabase-shaped mock that captures upsert calls and
- * returns whatever the test queues. The real client's `.from(t).upsert(rows)`
- * returns a thenable resolving to `{ error }`; we just return a Promise. */
-function makeSupabase(upsert: ReturnType<typeof vi.fn>) {
-  return { from: () => ({ upsert }) } as unknown as SupabaseClient;
+ * returns whatever the test queues. The real client's
+ * `.from(t).upsert(rows).abortSignal(s)` returns a thenable resolving to
+ * `{ error }`; we wrap so the abortSignal step is transparent. The
+ * underlying `upsert` vi.fn is still what the tests assert on. */
+type UpsertFn = (...args: unknown[]) => unknown;
+function makeSupabase(upsert: UpsertFn) {
+  return {
+    from: () => ({
+      upsert: (...args: unknown[]) => {
+        const result = upsert(...args);
+        return { abortSignal: () => result };
+      },
+    }),
+  } as unknown as SupabaseClient;
 }
 
 describe("pushCustomFoods — happy path", () => {
@@ -257,5 +267,53 @@ describe("pushMealTemplates — UUID-collision recovery on 42501", () => {
       expect.objectContaining({ id: newId, name: "Greek bowl" }),
     );
     expect(db.deleteMealTemplate).toHaveBeenCalledWith("foreign-tpl-id");
+  });
+});
+
+describe("withTimeout (defensive sync)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("aborts a stalled push after 60s and surfaces a readable error", async () => {
+    vi.mocked(db.listCustomFoods).mockResolvedValue([
+      {
+        id: "id-1",
+        name: "X",
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        calories: 0,
+        createdAt: 0,
+      },
+    ]);
+
+    // Build a supabase mock whose abortSignal-returned thenable only
+    // settles when the passed signal aborts — mirrors a stalled
+    // PostgREST request. The withTimeout helper fires the abort after 60s.
+    const supabase = {
+      from: () => ({
+        upsert: () => ({
+          abortSignal: (signal: AbortSignal) =>
+            new Promise((_, reject) => {
+              signal.addEventListener("abort", () => {
+                const err = new Error("aborted");
+                err.name = "AbortError";
+                reject(err);
+              });
+            }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    vi.useFakeTimers();
+    try {
+      const pending = pushCustomFoods(supabase, USER_ID, newResult());
+      pending.catch(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(pending).rejects.toThrow(/timed out after 60s/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
