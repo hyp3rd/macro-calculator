@@ -31,10 +31,10 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
 }) => {
   const numberHandler =
     (field: keyof PersonalInfo, fallback: number, parser = parseFloat) =>
-      (e: React.ChangeEvent<HTMLInputElement>) => {
-        const v = parser(e.target.value);
-        onPersonalInfoChange(field, Number.isNaN(v) ? fallback : v);
-      };
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = parser(e.target.value);
+      onPersonalInfoChange(field, Number.isNaN(v) ? fallback : v);
+    };
 
   return (
     <div className="space-y-6">
