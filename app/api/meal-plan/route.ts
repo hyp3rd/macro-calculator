@@ -2,7 +2,11 @@ import type { DietPreference, Food, Meal } from "@/components/macro/types";
 import { foodDatabase } from "@/data/food-database";
 import { getAnthropicConfig } from "@/lib/ai/env";
 import { searchOpenFoodFactsServer } from "@/lib/ai/off-search";
-import { aiPlanToMeals, type AiPlanShape } from "@/lib/ai/plan";
+import {
+  aiPlanToMeals,
+  type AiPlanShape,
+  unmatchedPickNames,
+} from "@/lib/ai/plan";
 import { filterByDiet } from "@/lib/diet";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
@@ -18,6 +22,46 @@ const MAX_ITERATIONS = 5;
  * payload + maybe a sentence of preamble); 1024 is plenty and keeps
  * each round-trip under ~2 s on Haiku 4.5. */
 const MAX_TOKENS_PER_ITERATION = 1024;
+
+/** Build the catalog used to resolve AI plan picks: seed (built-in + custom,
+ * already diet-filtered) plus every OFF result the AI has pulled this run,
+ * minus anything containing an allergen substring. Pure so the in-loop
+ * validation and the post-loop resolution can share it. */
+function buildResolutionCatalog(
+  seed: Food[],
+  offFoods: Food[],
+  allergies: string[],
+): Food[] {
+  let c = [...seed, ...offFoods];
+  if (allergies.length > 0) {
+    c = c.filter((f) => {
+      const name = f.name.toLowerCase();
+      return !allergies.some((a) => a.length > 0 && name.includes(a));
+    });
+  }
+  return c;
+}
+
+/** Mark the last content block of a user message with ephemeral cache_control
+ * so the API caches the prefix up to and including that block. Idempotent:
+ * if the block is already marked, leaves it alone. Used to extend caching
+ * across the agent loop's growing transcript — Anthropic keeps the most
+ * recent 4 breakpoints automatically, so we never need to clear old ones. */
+function markLastBlockForCache(msg: Anthropic.MessageParam): void {
+  if (msg.role !== "user") return;
+  if (typeof msg.content === "string" || msg.content.length === 0) return;
+  const last = msg.content[msg.content.length - 1];
+  // Text, image, tool_result, document, and search_result blocks all accept
+  // cache_control. The narrowing here keeps TS happy without an `as any`.
+  if (
+    last.type === "text" ||
+    last.type === "image" ||
+    last.type === "tool_result" ||
+    last.type === "document"
+  ) {
+    last.cache_control = { type: "ephemeral" };
+  }
+}
 
 type RequestBody = {
   targets: { protein: number; carbs: number; fat: number; calories: number };
@@ -176,13 +220,22 @@ ${catalogLines}`;
   const offFoodsSeen: Food[] = [];
   const offFoodsByName = new Map<string, true>();
 
+  // Initial user message uses a content-block array (not a bare string) so
+  // we can attach `cache_control` and extend the cached prefix into the
+  // transcript as the loop progresses.
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
-      content: `Daily targets: protein ${body.targets.protein}g, carbs ${body.targets.carbs}g, fat ${body.targets.fat}g, ${body.targets.calories} kcal.
+      content: [
+        {
+          type: "text",
+          text: `Daily targets: protein ${body.targets.protein}g, carbs ${body.targets.carbs}g, fat ${body.targets.fat}g, ${body.targets.calories} kcal.
 Meal slots (in order): ${body.mealNames.join(", ")}.
 
 Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
     },
   ];
 
@@ -312,26 +365,81 @@ Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`
           { status: 502 },
         );
       }
-      messages.push({
+      const nudge: Anthropic.MessageParam = {
         role: "user",
-        content:
-          "You didn't call a tool. Either call search_open_food_facts to find more foods, or call submit_meal_plan to finalize.",
-      });
+        content: [
+          {
+            type: "text",
+            text: "You didn't call a tool. Either call search_open_food_facts to find more foods, or call submit_meal_plan to finalize.",
+          },
+        ],
+      };
+      markLastBlockForCache(nudge);
+      messages.push(nudge);
       continue;
     }
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUseBlocks) {
       if (toolUse.name === "submit_meal_plan") {
-        finalPlan = toolUse.input as AiPlanShape;
+        const submitted = toolUse.input as AiPlanShape;
+        // Resolve against the current catalog (seed + OFF foods seen so
+        // far, minus allergens) BEFORE accepting the plan. If everything
+        // the AI submitted fails to match and we still have iterations
+        // left, send the unmatched names back as an is_error tool_result
+        // and let it self-correct — that's far better than 502-ing on an
+        // empty plan when the model was just paraphrasing names.
+        const catalogNow = buildResolutionCatalog(
+          seedCatalog,
+          offFoodsSeen,
+          allergies,
+        );
+        const previewMeals = aiPlanToMeals(
+          submitted,
+          body.mealNames,
+          catalogNow,
+        );
+        const allEmpty = previewMeals.every((m) => m.foods.length === 0);
+        if (allEmpty && !isLastIteration) {
+          const unmatched = unmatchedPickNames(submitted, catalogNow);
+          const validSample = catalogNow
+            .slice(0, 20)
+            .map((f) => f.name)
+            .join(", ");
+          const unmatchedSample = unmatched.slice(0, 10).join(", ");
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: `Your plan resolved to zero foods — none of these names matched the catalog: ${unmatchedSample || "(no picks at all)"}. Use names exactly as they appear in the seed catalog (e.g., ${validSample}) or in earlier search_open_food_facts results. Call submit_meal_plan again with corrected names.`,
+            is_error: true,
+          });
+          continue;
+        }
+        finalPlan = submitted;
         break;
       }
       if (toolUse.name === "search_open_food_facts") {
         const input = toolUse.input as { query?: string; limit?: number };
-        const found = await searchOpenFoodFactsServer(
-          input.query ?? "",
-          input.limit ?? 5,
-        );
+        let found: Food[];
+        try {
+          found = await searchOpenFoodFactsServer(
+            input.query ?? "",
+            input.limit ?? 5,
+          );
+        } catch (err) {
+          // OFF is best-effort: surface the failure to the model as an
+          // is_error tool_result so it can retry with a different query or
+          // proceed straight to submit_meal_plan with the seed catalog.
+          // Without this we'd let the throw escape the loop → unhandled 500.
+          const reason = err instanceof Error ? err.message : "unknown error";
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: `Open Food Facts search failed: ${reason}. Try a different query or call submit_meal_plan.`,
+            is_error: true,
+          });
+          continue;
+        }
         // Deduplicate by name so the same product doesn't accumulate
         // across multiple searches.
         for (const f of found) {
@@ -370,8 +478,14 @@ Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`
 
     if (finalPlan) break;
 
-    // Feed tool results back for the next iteration.
-    messages.push({ role: "user", content: toolResults });
+    // Feed tool results back for the next iteration. Cache the last block
+    // so the next turn re-uses this transcript prefix.
+    const toolResultMsg: Anthropic.MessageParam = {
+      role: "user",
+      content: toolResults,
+    };
+    markLastBlockForCache(toolResultMsg);
+    messages.push(toolResultMsg);
   }
 
   if (!finalPlan) {
@@ -381,16 +495,15 @@ Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`
     );
   }
 
-  // 7. Build the resolution catalog: seed (built-in + customs, diet-filtered)
-  //    plus everything the AI pulled from OFF during this run. Then enforce
-  //    the allergy filter at the resolution layer too — defense in depth.
-  let resolutionCatalog = [...seedCatalog, ...offFoodsSeen];
-  if (allergies.length > 0) {
-    resolutionCatalog = resolutionCatalog.filter((f) => {
-      const name = f.name.toLowerCase();
-      return !allergies.some((a) => a.length > 0 && name.includes(a));
-    });
-  }
+  // 7. Resolve the AI plan against the same catalog the in-loop validation
+  //    used: seed (built-in + customs, diet-filtered) + OFF foods seen this
+  //    run, minus allergens. Defense in depth — even if the AI sneaks an
+  //    allergen past the system prompt, the converter drops it here.
+  const resolutionCatalog = buildResolutionCatalog(
+    seedCatalog,
+    offFoodsSeen,
+    allergies,
+  );
 
   const meals: Meal[] = aiPlanToMeals(
     finalPlan,

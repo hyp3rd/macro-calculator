@@ -1,6 +1,11 @@
 import type { Food } from "@/components/macro/types";
 import { describe, expect, it } from "vitest";
-import { aiPlanToMeals, type AiPlanShape } from "./plan";
+import {
+  aiPlanToMeals,
+  type AiPlanShape,
+  normalizeName,
+  unmatchedPickNames,
+} from "./plan";
 
 const catalog: Food[] = [
   { name: "Chicken Breast", protein: 31, carbs: 0, fat: 3.6, calories: 165 },
@@ -194,5 +199,121 @@ describe("aiPlanToMeals", () => {
     const meals = aiPlanToMeals(ai, ["Breakfast"], catalog);
     expect(meals[0].foods).toHaveLength(1);
     expect(meals[0].foods[0].name).toBe("Oats");
+  });
+
+  // Looser name matching: OFF returns verbose, brand-laden names that
+  // wouldn't survive a strict exact match. The normalizer + substring
+  // fallback let the model's paraphrases still resolve so the route
+  // doesn't 502 on what amounts to a spelling mismatch.
+  it("matches a pick against a catalog entry that has brand/qualifier suffixes", () => {
+    const verbose: Food[] = [
+      {
+        name: "Greek Yogurt, Plain — Fage Total 0%",
+        protein: 10,
+        carbs: 4,
+        fat: 0,
+        calories: 59,
+      },
+    ];
+    const ai: AiPlanShape = {
+      meals: [
+        {
+          name: "Breakfast",
+          foods: [{ name: "Greek Yogurt", portionGrams: 200 }],
+        },
+      ],
+    };
+    const meals = aiPlanToMeals(ai, ["Breakfast"], verbose);
+    expect(meals[0].foods).toHaveLength(1);
+    expect(meals[0].foods[0].name).toBe("Greek Yogurt, Plain — Fage Total 0%");
+  });
+
+  it("matches a verbose pick name against a short catalog entry", () => {
+    const ai: AiPlanShape = {
+      meals: [
+        {
+          name: "Breakfast",
+          foods: [{ name: "Rolled oats (steel-cut)", portionGrams: 80 }],
+        },
+      ],
+    };
+    const meals = aiPlanToMeals(ai, ["Breakfast"], catalog);
+    expect(meals[0].foods).toHaveLength(1);
+    expect(meals[0].foods[0].name).toBe("Oats");
+  });
+
+  it("does NOT match short ambiguous names below the substring threshold", () => {
+    // "egg" (3 chars) is too short to be safely matched as a substring of
+    // "egg salad" — we'd be making up macros for a different dish.
+    const eggSaladCatalog: Food[] = [
+      { name: "Egg salad", protein: 12, carbs: 1, fat: 18, calories: 200 },
+    ];
+    const ai: AiPlanShape = {
+      meals: [
+        { name: "Breakfast", foods: [{ name: "egg", portionGrams: 50 }] },
+      ],
+    };
+    const meals = aiPlanToMeals(ai, ["Breakfast"], eggSaladCatalog);
+    expect(meals[0].foods).toHaveLength(0);
+  });
+});
+
+describe("normalizeName", () => {
+  it("lowercases and collapses whitespace", () => {
+    expect(normalizeName("  Greek  Yogurt  ")).toBe("greek yogurt");
+  });
+
+  it("drops parenthetical content", () => {
+    expect(normalizeName("Yogurt (Fage)")).toBe("yogurt");
+  });
+
+  it("drops content after a comma, dash, or em-dash", () => {
+    expect(normalizeName("Yogurt, Plain")).toBe("yogurt");
+    expect(normalizeName("Yogurt - Plain")).toBe("yogurt");
+    expect(normalizeName("Yogurt — Plain")).toBe("yogurt");
+  });
+
+  it("strips accents", () => {
+    expect(normalizeName("Crème Brûlée")).toBe("creme brulee");
+  });
+
+  it("strips non-alphanumeric punctuation", () => {
+    expect(normalizeName("Chicken & Rice!")).toBe("chicken rice");
+  });
+});
+
+describe("unmatchedPickNames", () => {
+  it("returns the pick names that don't resolve against the catalog", () => {
+    const ai: AiPlanShape = {
+      meals: [
+        {
+          name: "Breakfast",
+          foods: [
+            { name: "Oats", portionGrams: 50 }, // matches
+            { name: "Unicorn Bacon", portionGrams: 100 }, // doesn't
+            { name: "Phoenix Egg", portionGrams: 60 }, // doesn't
+          ],
+        },
+      ],
+    };
+    expect(unmatchedPickNames(ai, catalog)).toEqual([
+      "Unicorn Bacon",
+      "Phoenix Egg",
+    ]);
+  });
+
+  it("returns an empty array when every pick resolves", () => {
+    const ai: AiPlanShape = {
+      meals: [
+        { name: "Breakfast", foods: [{ name: "Oats", portionGrams: 50 }] },
+      ],
+    };
+    expect(unmatchedPickNames(ai, catalog)).toEqual([]);
+  });
+
+  it("returns an empty array for a malformed plan", () => {
+    expect(unmatchedPickNames({} as unknown as AiPlanShape, catalog)).toEqual(
+      [],
+    );
   });
 });
