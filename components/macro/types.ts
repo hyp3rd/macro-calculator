@@ -111,7 +111,17 @@ export const CUISINES: readonly Cuisine[] = [
   "Eastern European",
 ] as const;
 
+/** Optional manual macro split. When set, overrides the goal+dietType-derived
+ * ratios in `computeMacros`. The three values are percentages (0–100) and
+ * should sum to ~100; the formula re-normalizes so a slightly-off sum still
+ * produces sensible targets. Power-user knob — leave null for the default
+ * goal-aware split. */
+export type MacroSplit = { protein: number; carbs: number; fat: number };
+
 export type PersonalInfo = {
+  /** Optional display name shown in the sidebar instead of the email
+   * prefix. Pure UX nicety — has no effect on calculations or AI. */
+  displayName?: string | null;
   gender: Gender;
   age: number;
   weight: number;
@@ -128,6 +138,11 @@ export type PersonalInfo = {
    * eat. The AI planner must filter these out hard. Examples: "peanuts",
    * "shellfish", "celery", "gluten". */
   allergies: string[];
+  /** Soft signal to the AI planner — foods the user dislikes but isn't
+   * allergic to. Unlike `allergies` this is *not* a hard filter; the AI
+   * is told to avoid them when possible but the converter doesn't drop
+   * picks that match. Examples: "oats", "tofu", "broccoli". */
+  dislikedFoods: string[];
   /** Target weight change rate in kg/week. Sign-less; the `goal` field
    * determines whether it's a deficit or surplus. Ignored when goal is
    * "maintain". 1 kg fat ≈ 7700 kcal → daily delta ≈ rate × 1100. */
@@ -137,6 +152,9 @@ export type PersonalInfo = {
    * against real-world weight change — formula-based TDEE estimates run
    * 10–20% high for many people. */
   manualTdee?: number | null;
+  /** Optional manual macro split (percentages). When set + valid, overrides
+   * the default goal+dietType-derived ratios in `computeMacros`. */
+  macroSplit?: MacroSplit | null;
 };
 
 export type CalculatedValues = {

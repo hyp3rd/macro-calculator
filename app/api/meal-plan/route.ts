@@ -29,6 +29,9 @@ type RequestBody = {
   cuisinePreferences?: string[];
   /** Hard filter — the AI must avoid any food matching these substrings. */
   allergies?: string[];
+  /** Soft preference — the AI is asked to avoid these but the converter
+   * doesn't filter them. Foods the user dislikes but isn't allergic to. */
+  dislikedFoods?: string[];
 };
 
 /** Generate a coherent one-day meal plan using Claude Haiku 4.5 in a
@@ -116,6 +119,9 @@ export async function POST(req: Request): Promise<NextResponse> {
   const allergies = (body.allergies ?? [])
     .map((a) => a.trim().toLowerCase())
     .filter(Boolean);
+  const dislikes = (body.dislikedFoods ?? [])
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
 
   const distributionHint =
     body.mealNames.length === 4
@@ -139,6 +145,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     allergies.length > 0
       ? `ALLERGIES (hard filter — NEVER include any food whose name contains these substrings): ${allergies.join(", ")}.`
       : "Allergies: none specified.";
+  const dislikeLine =
+    dislikes.length > 0
+      ? `Disliked foods (soft preference — avoid when you can, but it's OK to include if it's the only way to hit the targets): ${dislikes.join(", ")}.`
+      : "Disliked foods: none specified.";
 
   const systemPrompt = `You are a meal planner. Design a one-day plan that approximately hits the daily macro targets while keeping food combinations coherent and culturally appropriate per meal.
 
@@ -148,6 +158,7 @@ Rules:
 - Distribution: ${distributionHint}
 - ${cuisineLine}
 - ${allergyLine}
+- ${dislikeLine}
 
 How to find foods:
 - A small seed catalog is provided below — use these when they fit.

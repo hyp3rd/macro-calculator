@@ -9,7 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useUser } from "@/hooks/use-user";
+import { getProfile } from "@/lib/db";
+import { subscribeProfileChanged } from "@/lib/profile-bus";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { useEffect, useState } from "react";
 import { LogIn, LogOut } from "lucide-react";
 import Link from "next/link";
 
@@ -19,6 +22,7 @@ import Link from "next/link";
  *   - Signed in: avatar + email + dropdown with Sign out. */
 export function UserMenu() {
   const { user, isLoaded, isUnconfigured } = useUser();
+  const displayName = useDisplayName();
 
   if (!isLoaded) {
     return (
@@ -51,7 +55,8 @@ export function UserMenu() {
   }
 
   const email = user.email ?? "Signed in";
-  const initial = (user.email?.[0] ?? "?").toUpperCase();
+  const primary = displayName ?? email;
+  const initial = (displayName?.[0] ?? user.email?.[0] ?? "?").toUpperCase();
 
   async function signOut() {
     const supabase = getSupabaseBrowser();
@@ -69,7 +74,7 @@ export function UserMenu() {
           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-[11px] font-medium text-background">
             {initial}
           </div>
-          <span className="flex-1 truncate text-left">{email}</span>
+          <span className="flex-1 truncate text-left">{primary}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -78,7 +83,14 @@ export function UserMenu() {
         className="w-56"
       >
         <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
-          {email}
+          {displayName ? (
+            <>
+              <span className="block text-foreground">{displayName}</span>
+              <span className="block text-[10px]">{email}</span>
+            </>
+          ) : (
+            email
+          )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -91,4 +103,35 @@ export function UserMenu() {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** Reads the optional `displayName` field from the persisted profile and
+ * keeps it fresh by subscribing to `profile-bus` notifications. We don't
+ * use `useProfile` here because it owns a debounced *write* loop — the
+ * sidebar should be read-only and not race with the form's writes. */
+function useDisplayName(): string | null {
+  const [name, setName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      getProfile()
+        .then((p) => {
+          if (cancelled) return;
+          const v = (p?.displayName ?? "").trim();
+          setName(v.length > 0 ? v : null);
+        })
+        .catch(() => {
+          if (!cancelled) setName(null);
+        });
+    };
+    load();
+    const off = subscribeProfileChanged(load);
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
+  return name;
 }

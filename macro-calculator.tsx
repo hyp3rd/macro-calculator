@@ -14,6 +14,7 @@ import {
   CalculatedValues,
   Food,
   FoodItem,
+  type MacroSplit,
   Meal,
   PersonalInfo,
   TotalMacros,
@@ -37,6 +38,7 @@ import { planDay, summarisePlan } from "./lib/meal-planner";
 import { bumpPending } from "./lib/sync-status";
 
 const DEFAULT_PROFILE: PersonalInfo = {
+  displayName: null,
   gender: "male",
   age: 30,
   weight: 70,
@@ -47,8 +49,10 @@ const DEFAULT_PROFILE: PersonalInfo = {
   dietPreference: "omnivore",
   cuisinePreferences: [],
   allergies: [],
+  dislikedFoods: [],
   weeklyRateKg: 0.5,
   manualTdee: null,
+  macroSplit: null,
 };
 
 const DEFAULT_MEALS: Meal[] = [
@@ -204,10 +208,11 @@ const MacroCalculator = () => {
   }, [meals]);
 
   // Handle personal info input changes. Accepts arrays so the multi-value
-  // fields (cuisinePreferences, allergies) can ride through the same path.
+  // fields (cuisinePreferences, allergies, dislikedFoods) and MacroSplit
+  // (the optional macro override) can all ride through the same path.
   const handlePersonalInfoChange = (
     name: string,
-    value: string | number | null | string[],
+    value: string | number | null | string[] | MacroSplit,
   ) => {
     setPersonalInfo({ ...personalInfo, [name]: value });
   };
@@ -622,6 +627,7 @@ const MacroCalculator = () => {
         customFoods,
         cuisinePreferences: personalInfo.cuisinePreferences ?? [],
         allergies: personalInfo.allergies ?? [],
+        dislikedFoods: personalInfo.dislikedFoods ?? [],
       });
 
       if (ai.kind === "ok") {

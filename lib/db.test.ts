@@ -23,6 +23,7 @@ const BASELINE_PROFILE: PersonalInfo = {
   dietPreference: "omnivore",
   cuisinePreferences: [],
   allergies: [],
+  dislikedFoods: [],
   weeklyRateKg: 0.5,
   manualTdee: null,
 };

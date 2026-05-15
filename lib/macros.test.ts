@@ -13,6 +13,7 @@ const baseline: PersonalInfo = {
   dietPreference: "omnivore",
   cuisinePreferences: [],
   allergies: [],
+  dislikedFoods: [],
   weeklyRateKg: 0,
 };
 
@@ -167,5 +168,89 @@ describe("computeMacros", () => {
     // Floor is max(bmr, 1200) ≈ 1649 (baseline male 30/175/70). With manual
     // TDEE 1500 the BMR floor is *higher* than TDEE; target snaps to BMR.
     expect(r.targetCalories).toBe(r.bmr);
+  });
+
+  describe("macroSplit override", () => {
+    it("applies the override when set, ignoring goal+dietType defaults", () => {
+      // Goal=lose normally yields 40/25/35 (P/C/F). Override to 50/30/20 and
+      // make sure the actual ratios match the override, NOT the goal default.
+      const r = computeMacros({
+        ...baseline,
+        goal: "lose",
+        weeklyRateKg: 0.5,
+        macroSplit: { protein: 50, carbs: 30, fat: 20 },
+      });
+      const proteinFraction = (r.protein * 4) / r.targetCalories;
+      const carbFraction = (r.carbs * 4) / r.targetCalories;
+      const fatFraction = (r.fat * 9) / r.targetCalories;
+      // Tolerances cover the integer rounding inside computeMacros.
+      expect(proteinFraction).toBeGreaterThan(0.48);
+      expect(proteinFraction).toBeLessThan(0.52);
+      expect(carbFraction).toBeGreaterThan(0.28);
+      expect(carbFraction).toBeLessThan(0.32);
+      expect(fatFraction).toBeGreaterThan(0.18);
+      expect(fatFraction).toBeLessThan(0.22);
+    });
+
+    it("re-normalizes a split that doesn't sum to 100", () => {
+      // 30/30/30 = 90 — the form lets you save it (with a yellow warning).
+      // Verify the calculator scales it to a true 1/3 each rather than
+      // shipping a plan whose macros sum to 90% of targetCalories.
+      const r = computeMacros({
+        ...baseline,
+        macroSplit: { protein: 30, carbs: 30, fat: 30 },
+      });
+      const proteinFraction = (r.protein * 4) / r.targetCalories;
+      const carbFraction = (r.carbs * 4) / r.targetCalories;
+      // Each macro should land near 33.3% of calories despite the 90 sum.
+      expect(proteinFraction).toBeGreaterThan(0.31);
+      expect(proteinFraction).toBeLessThan(0.36);
+      expect(carbFraction).toBeGreaterThan(0.31);
+      expect(carbFraction).toBeLessThan(0.36);
+    });
+
+    it("falls back to goal+dietType defaults when split is null", () => {
+      const a = computeMacros({ ...baseline, goal: "gain", weeklyRateKg: 0.5 });
+      const b = computeMacros({
+        ...baseline,
+        goal: "gain",
+        weeklyRateKg: 0.5,
+        macroSplit: null,
+      });
+      expect(b.protein).toBe(a.protein);
+      expect(b.carbs).toBe(a.carbs);
+      expect(b.fat).toBe(a.fat);
+    });
+
+    it("falls back to defaults when override is all-zero (treated as missing)", () => {
+      // A user toggles the override on, then zeros every input — treat as
+      // "no override" rather than dividing by zero or producing all-zero
+      // macros (which would silently kill the meal plan).
+      const a = computeMacros({ ...baseline, goal: "lose", weeklyRateKg: 0.5 });
+      const b = computeMacros({
+        ...baseline,
+        goal: "lose",
+        weeklyRateKg: 0.5,
+        macroSplit: { protein: 0, carbs: 0, fat: 0 },
+      });
+      expect(b.protein).toBe(a.protein);
+      expect(b.carbs).toBe(a.carbs);
+      expect(b.fat).toBe(a.fat);
+    });
+
+    it("ignores negative components in the override (clamps to zero before normalizing)", () => {
+      // A junk -10 should not invert the ratio — it's clamped to 0 first.
+      const positive = computeMacros({
+        ...baseline,
+        macroSplit: { protein: 40, carbs: 0, fat: 60 },
+      });
+      const withNegative = computeMacros({
+        ...baseline,
+        macroSplit: { protein: 40, carbs: -10, fat: 60 },
+      });
+      expect(withNegative.protein).toBe(positive.protein);
+      expect(withNegative.carbs).toBe(positive.carbs);
+      expect(withNegative.fat).toBe(positive.fat);
+    });
   });
 });
