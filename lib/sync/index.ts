@@ -3,16 +3,19 @@
 import {
   deleteCustomFood,
   deleteMealTemplate,
+  deleteRecipe,
   getProfile,
   listCustomFoods,
   listDailyLogs,
   listMealTemplates,
+  listRecipes,
   listWeightEntries,
   saveDailyLog,
   saveProfile,
   saveWeightEntry,
   upsertCustomFood,
   upsertMealTemplate,
+  upsertRecipe,
 } from "@/lib/db";
 import {
   getSyncStatus,
@@ -30,12 +33,15 @@ import {
   mealTemplateToRow,
   profileFromRow,
   profileToRow,
+  recipeFromRow,
+  recipeToRow,
   weightFromRow,
   weightToRow,
   type CustomFoodRow,
   type DailyLogRow,
   type MealTemplateRow,
   type ProfileRow,
+  type RecipeRow,
   type WeightRow,
 } from "./mappers";
 
@@ -46,6 +52,7 @@ export type SyncResult = {
     weightEntries: number;
     customFoods: number;
     mealTemplates: number;
+    recipes: number;
   };
   pulled: {
     profile: number;
@@ -53,6 +60,7 @@ export type SyncResult = {
     weightEntries: number;
     customFoods: number;
     mealTemplates: number;
+    recipes: number;
   };
 };
 
@@ -62,6 +70,7 @@ const ZERO_COUNTS = {
   weightEntries: 0,
   customFoods: 0,
   mealTemplates: 0,
+  recipes: 0,
 };
 
 /** Push every local row to Supabase via upsert, then pull every remote row
@@ -83,12 +92,14 @@ export async function runInitialSync(
   await pushWeightEntries(supabase, userId, result);
   await pushCustomFoods(supabase, userId, result);
   await pushMealTemplates(supabase, userId, result);
+  await pushRecipes(supabase, userId, result);
 
   await pullProfile(supabase, userId, result);
   await pullDailyLogs(supabase, userId, result);
   await pullWeightEntries(supabase, userId, result);
   await pullCustomFoods(supabase, userId, result);
   await pullMealTemplates(supabase, userId, result);
+  await pullRecipes(supabase, userId, result);
 
   return result;
 }
@@ -265,6 +276,49 @@ export async function pushMealTemplates(
   result.pushed.mealTemplates = pushed;
 }
 
+/** @internal Exported for unit tests. Not part of the stable sync API. */
+export async function pushRecipes(
+  supabase: SupabaseClient,
+  userId: string,
+  result: SyncResult,
+) {
+  const recipes = await listRecipes();
+  if (recipes.length === 0) return;
+  const rows = recipes.map((r) => recipeToRow(userId, r));
+  const { error } = await supabase.from("recipes").upsert(rows);
+  if (!error) {
+    result.pushed.recipes = rows.length;
+    return;
+  }
+
+  // Same UUID-collision recovery as custom_foods / meal_templates: per-row
+  // retry with re-minted local UUID on 42501.
+  const code = (error as { code?: string }).code;
+  if (code !== "42501") throw asError(error, "push recipes");
+
+  let pushed = 0;
+  for (const recipe of recipes) {
+    const row = recipeToRow(userId, recipe);
+    const single = await supabase.from("recipes").upsert(row);
+    if (!single.error) {
+      pushed++;
+      continue;
+    }
+    if ((single.error as { code?: string }).code !== "42501") {
+      throw asError(single.error, "push recipes (per-row)");
+    }
+    const newId = crypto.randomUUID();
+    await upsertRecipe({ ...recipe, id: newId });
+    await deleteRecipe(recipe.id);
+    const retry = await supabase
+      .from("recipes")
+      .upsert(recipeToRow(userId, { ...recipe, id: newId }));
+    if (retry.error) throw asError(retry.error, "push recipes (re-mint retry)");
+    pushed++;
+  }
+  result.pushed.recipes = pushed;
+}
+
 // ─── Pull ──────────────────────────────────────────────────────────────────
 
 async function pullProfile(
@@ -353,5 +407,24 @@ async function pullMealTemplates(
   for (const row of data as MealTemplateRow[]) {
     await upsertMealTemplate(mealTemplateFromRow(row));
     result.pulled.mealTemplates++;
+  }
+}
+
+async function pullRecipes(
+  supabase: SupabaseClient,
+  userId: string,
+  result: SyncResult,
+) {
+  const { data, error } = await supabase
+    .from("recipes")
+    .select(
+      "id, user_id, name, ingredients, cuisine, notes, created_at, updated_at",
+    )
+    .eq("user_id", userId);
+  if (error) throw asError(error, "pull recipes");
+  if (!data) return;
+  for (const row of data as RecipeRow[]) {
+    await upsertRecipe(recipeFromRow(row));
+    result.pulled.recipes++;
   }
 }

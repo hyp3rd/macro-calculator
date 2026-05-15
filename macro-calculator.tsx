@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ApplyRecipeDialog } from "./components/macro/ApplyRecipeDialog";
 import { ApplyTemplateDialog } from "./components/macro/ApplyTemplateDialog";
 import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
@@ -8,6 +9,7 @@ import MealPlanner from "./components/macro/MealPlanner";
 import { MyFoodsView } from "./components/macro/MyFoodsView";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
 import { ProgressView } from "./components/macro/ProgressView";
+import { RecipesView } from "./components/macro/RecipesView";
 import { SaveTemplateDialog } from "./components/macro/SaveTemplateDialog";
 import { SettingsView } from "./components/macro/SettingsView";
 import {
@@ -17,6 +19,7 @@ import {
   type MacroSplit,
   Meal,
   PersonalInfo,
+  type Recipe,
   TotalMacros,
 } from "./components/macro/types";
 import { AppShell } from "./components/shell/AppShell";
@@ -132,6 +135,11 @@ const MacroCalculator = () => {
   const [templateDialog, setTemplateDialog] = useState<
     { kind: "save"; mealId: number } | { kind: "apply"; mealId: number } | null
   >(null);
+  // Apply-recipe dialog: which meal slot the user wants to apply a recipe
+  // into. `null` = closed.
+  const [applyRecipeMealId, setApplyRecipeMealId] = useState<number | null>(
+    null,
+  );
   const [view, setView] = useState<ViewKey>("calculator");
 
   const search = useFoodSearch(foodSearch, customFoodsRev);
@@ -273,6 +281,41 @@ const MacroCalculator = () => {
         m.id === targetId ? { ...m, foods: [...m.foods, ...cloned] } : m,
       ),
     );
+  };
+
+  // Expand a recipe's ingredients into the target meal slot as individual
+  // FoodItems. Mirrors handleApplyTemplate but converts RecipeIngredient
+  // (per-100g snapshot + portionGrams) into the per-portion FoodItem shape
+  // the meal-planner expects. After apply, the user can adjust each
+  // ingredient's portion independently through the existing slot UI.
+  const handleApplyRecipe = (recipe: Recipe) => {
+    if (applyRecipeMealId === null) return;
+    const targetId = applyRecipeMealId;
+    let nextId = Date.now();
+    const cloned: FoodItem[] = recipe.ingredients.map((ing) => {
+      const r = ing.portionGrams / 100;
+      return {
+        id: nextId++,
+        name: ing.foodName,
+        protein: Number.parseFloat((ing.macrosPer100g.protein * r).toFixed(1)),
+        carbs: Number.parseFloat((ing.macrosPer100g.carbs * r).toFixed(1)),
+        fat: Number.parseFloat((ing.macrosPer100g.fat * r).toFixed(1)),
+        calories: Math.round(ing.macrosPer100g.calories * r),
+        portionSize: ing.portionGrams,
+        originalValues: {
+          proteinPer100g: ing.macrosPer100g.protein,
+          carbsPer100g: ing.macrosPer100g.carbs,
+          fatPer100g: ing.macrosPer100g.fat,
+          caloriesPer100g: ing.macrosPer100g.calories,
+        },
+      };
+    });
+    setMeals(
+      meals.map((m) =>
+        m.id === targetId ? { ...m, foods: [...m.foods, ...cloned] } : m,
+      ),
+    );
+    setApplyRecipeMealId(null);
   };
 
   // Handle portion size change
@@ -747,6 +790,7 @@ const MacroCalculator = () => {
           onAddFromTemplate={(mealId) =>
             setTemplateDialog({ kind: "apply", mealId })
           }
+          onApplyRecipe={(mealId) => setApplyRecipeMealId(mealId)}
         />
       )}
 
@@ -757,6 +801,8 @@ const MacroCalculator = () => {
       {view === "foods" && (
         <MyFoodsView onChange={() => setCustomFoodsRev((r) => r + 1)} />
       )}
+
+      {view === "recipes" && <RecipesView profile={personalInfo} />}
 
       {view === "settings" && <SettingsView />}
 
@@ -797,6 +843,20 @@ const MacroCalculator = () => {
             : "Meal"
         }
         onApply={handleApplyTemplate}
+      />
+
+      <ApplyRecipeDialog
+        open={applyRecipeMealId !== null}
+        onOpenChange={(o) => {
+          if (!o) setApplyRecipeMealId(null);
+        }}
+        targetMealName={
+          applyRecipeMealId !== null
+            ? (meals.find((m) => m.id === applyRecipeMealId)?.name ?? "Meal")
+            : "Meal"
+        }
+        dietPreference={personalInfo.dietPreference}
+        onApply={handleApplyRecipe}
       />
     </AppShell>
   );

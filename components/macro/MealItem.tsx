@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { BookmarkPlus, MoreHorizontal, Plus } from "lucide-react";
+import { BookmarkPlus, ChefHat, MoreHorizontal, Plus } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -49,6 +49,7 @@ interface MealItemProps {
   removeFood: (mealId: number, foodId: number) => void;
   onSaveAsTemplate: (mealId: number) => void;
   onAddFromTemplate: (mealId: number) => void;
+  onApplyRecipe: (mealId: number) => void;
 }
 
 const MealItem: React.FC<MealItemProps> = ({
@@ -67,6 +68,7 @@ const MealItem: React.FC<MealItemProps> = ({
   removeFood,
   onSaveAsTemplate,
   onAddFromTemplate,
+  onApplyRecipe,
 }) => {
   const totalProtein = Math.round(
     meal.foods.reduce((s, f) => s + f.protein, 0),
@@ -124,6 +126,13 @@ const MealItem: React.FC<MealItemProps> = ({
               >
                 <Plus className="h-3.5 w-3.5 text-muted-foreground" />
                 Add from template
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onApplyRecipe(meal.id)}
+                className="gap-2"
+              >
+                <ChefHat className="h-3.5 w-3.5 text-muted-foreground" />
+                Apply recipe
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onSaveAsTemplate(meal.id)}

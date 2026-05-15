@@ -43,7 +43,10 @@ export function normalizeName(s: string): string {
 /** Resolve a single pick name against the catalog. Exact normalized match
  * first, then substring containment with `SUBSTRING_MIN_LEN` guard. Returns
  * `undefined` if nothing reasonable matches. */
-function matchPick(
+/** Resolve a pick name to a catalog food via aggressive normalization with
+ *  a word-boundary substring fallback. Exported so the recipe converter
+ *  shares the exact same matching semantics — same edge cases, same tests. */
+export function matchPick(
   pickName: string,
   catalog: Food[],
   byNorm: Map<string, Food>,
@@ -69,7 +72,10 @@ function matchPick(
   return undefined;
 }
 
-function buildNormIndex(catalog: Food[]): Map<string, Food> {
+/** Build the normalized-name → Food index used by `matchPick`. Exported
+ *  alongside `matchPick` so callers can amortize the index build across
+ *  many lookups. */
+export function buildNormIndex(catalog: Food[]): Map<string, Food> {
   const m = new Map<string, Food>();
   for (const f of catalog) {
     const n = normalizeName(f.name);

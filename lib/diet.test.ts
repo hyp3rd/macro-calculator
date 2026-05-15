@@ -1,6 +1,28 @@
-import type { Food } from "@/components/macro/types";
+import type { Food, Recipe } from "@/components/macro/types";
 import { describe, expect, it } from "vitest";
-import { classifyFood, filterByDiet, isCompatibleWithDiet } from "./diet";
+import {
+  classifyFood,
+  filterByDiet,
+  isCompatibleWithDiet,
+  recipeDietCompatibility,
+} from "./diet";
+
+function makeRecipe(
+  ingredients: Array<{ dietKind?: Recipe["ingredients"][0]["dietKind"] }>,
+): Recipe {
+  return {
+    id: "r1",
+    name: "Test",
+    ingredients: ingredients.map((ing, i) => ({
+      foodName: `food-${i}`,
+      macrosPer100g: { protein: 1, carbs: 1, fat: 1, calories: 9 },
+      portionGrams: 100,
+      dietKind: ing.dietKind,
+    })),
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
 
 const chicken: Food = {
   name: "Chicken Breast",
@@ -192,5 +214,53 @@ describe("filterByDiet", () => {
       "Egg",
       "Greek Yogurt",
     ]);
+  });
+});
+
+describe("recipeDietCompatibility", () => {
+  it("plant-only recipe is suitable for every diet except carnivore", () => {
+    const r = makeRecipe([{ dietKind: "plant" }, { dietKind: "plant" }]);
+    const compat = recipeDietCompatibility(r);
+    expect(compat.has("omnivore")).toBe(true);
+    expect(compat.has("vegetarian")).toBe(true);
+    expect(compat.has("vegan")).toBe(true);
+    expect(compat.has("pescatarian")).toBe(true);
+    expect(compat.has("carnivore")).toBe(false);
+  });
+
+  it("dairy ingredient blocks vegan but keeps vegetarian / pescatarian", () => {
+    const r = makeRecipe([{ dietKind: "plant" }, { dietKind: "dairy" }]);
+    const compat = recipeDietCompatibility(r);
+    expect(compat.has("vegan")).toBe(false);
+    expect(compat.has("vegetarian")).toBe(true);
+    expect(compat.has("pescatarian")).toBe(true);
+    expect(compat.has("omnivore")).toBe(true);
+    expect(compat.has("carnivore")).toBe(false);
+  });
+
+  it("seafood ingredient blocks vegetarian + vegan but keeps pescatarian", () => {
+    const r = makeRecipe([{ dietKind: "seafood" }, { dietKind: "plant" }]);
+    const compat = recipeDietCompatibility(r);
+    expect(compat.has("vegan")).toBe(false);
+    expect(compat.has("vegetarian")).toBe(false);
+    expect(compat.has("pescatarian")).toBe(true);
+    expect(compat.has("omnivore")).toBe(true);
+  });
+
+  it("land-meat ingredient leaves only omnivore + carnivore", () => {
+    const r = makeRecipe([{ dietKind: "land-meat" }]);
+    const compat = recipeDietCompatibility(r);
+    expect([...compat].sort()).toEqual(["carnivore", "omnivore"]);
+  });
+
+  it("any unknown ingredient drops everything except omnivore", () => {
+    const r = makeRecipe([{ dietKind: "plant" }, { dietKind: undefined }]);
+    const compat = recipeDietCompatibility(r);
+    expect([...compat]).toEqual(["omnivore"]);
+  });
+
+  it("returns the full diet set for an empty-ingredient recipe (draft)", () => {
+    const r = makeRecipe([]);
+    expect(recipeDietCompatibility(r).size).toBe(5);
   });
 });
