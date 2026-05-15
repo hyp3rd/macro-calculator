@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Footer } from "./Footer";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { Sidebar, type ViewKey } from "./Sidebar";
 import { StorageBanner } from "./StorageBanner";
@@ -33,7 +34,7 @@ export function AppShell({ current, onSelect, children }: Props) {
       <main className="flex min-w-0 flex-1 flex-col">
         <Topbar current={current} />
         <StorageBanner />
-        <div className="relative flex-1 overflow-auto">
+        <div className="relative flex flex-1 flex-col overflow-auto">
           <AnimatePresence
             mode="wait"
             initial={false}
@@ -47,11 +48,18 @@ export function AppShell({ current, onSelect, children }: Props) {
               // Bottom padding on mobile clears the fixed bottom tab bar
               // (h-14 + safe-area). Desktop has the sidebar instead, no
               // bottom obstruction → no extra padding needed.
-              className="mx-auto w-full max-w-6xl px-6 py-8 pb-24 md:pb-8 lg:py-10 lg:pb-10"
+              className="mx-auto w-full max-w-6xl flex-1 px-6 py-8 lg:py-10"
             >
               {children}
             </motion.div>
           </AnimatePresence>
+          {/* Footer sits at the bottom of the scrollable area — scrolls
+              with content rather than pinning to the viewport. The
+              mobile bottom nav still floats over it via fixed
+              positioning. Mobile padding here clears the bottom nav. */}
+          <div className="pb-24 md:pb-0">
+            <Footer />
+          </div>
         </div>
       </main>
       <MobileBottomNav

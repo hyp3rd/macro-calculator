@@ -11,6 +11,7 @@ ignorePaths:
 dictionaryDefinitions: []
 dictionaries: []
 words:
+  - aren
   - autoincrements
   - banchan
   - Brûlée
@@ -34,8 +35,10 @@ words:
   - IDBP
   - inbucket
   - indexeddb
+  - intolerances
   - Jeor
   - licious
+  - macronutrient
   - macrotask
   - magiclink
   - Maqro
@@ -61,6 +64,7 @@ words:
   - Topbar
   - trivago
   - Turbopack
+  - tyramine
   - Unconfigured
   - upserted
   - upserts

@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import * as React from "react";
 import {
   Activity,
   Calculator,
@@ -10,7 +11,6 @@ import {
   Utensils,
 } from "lucide-react";
 import { motion } from "motion/react";
-import * as React from "react";
 import { UserMenu } from "./UserMenu";
 
 export type ViewKey =
