@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
+import { TagInput } from "./TagInput";
 
 interface PersonalInfoFormProps {
   personalInfo: PersonalInfo;
@@ -258,23 +259,15 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           >
             Allergies / foods to avoid
           </Label>
-          <Input
+          <TagInput
             id="allergies"
-            type="text"
-            value={(personalInfo.allergies ?? []).join(", ")}
-            onChange={(e) =>
-              onPersonalInfoChange(
-                "allergies",
-                e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              )
-            }
-            placeholder="peanuts, shellfish, gluten…"
+            value={personalInfo.allergies ?? []}
+            onChange={(next) => onPersonalInfoChange("allergies", next)}
+            placeholder="Type an allergen, press Enter…"
           />
           <p className="text-[11px] text-muted-foreground">
-            Comma-separated. Hard filter — the AI must never include these.
+            Press Enter or comma to add. Click × to remove. Hard filter — the AI
+            must never include these.
           </p>
         </div>
 
@@ -285,24 +278,15 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           >
             Disliked foods
           </Label>
-          <Input
+          <TagInput
             id="dislikedFoods"
-            type="text"
-            value={(personalInfo.dislikedFoods ?? []).join(", ")}
-            onChange={(e) =>
-              onPersonalInfoChange(
-                "dislikedFoods",
-                e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              )
-            }
-            placeholder="oats, tofu, broccoli…"
+            value={personalInfo.dislikedFoods ?? []}
+            onChange={(next) => onPersonalInfoChange("dislikedFoods", next)}
+            placeholder="Type a food, press Enter…"
           />
           <p className="text-[11px] text-muted-foreground">
-            Comma-separated. Soft signal — the AI tries to avoid these but may
-            still pick them when the seed catalog is thin.
+            Press Enter or comma to add. Soft signal — the AI tries to avoid
+            these but may still pick them when the seed catalog is thin.
           </p>
         </div>
       </Section>
