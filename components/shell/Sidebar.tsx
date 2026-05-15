@@ -1,7 +1,6 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import * as React from "react";
 import {
   Activity,
   Calculator,
@@ -11,6 +10,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { motion } from "motion/react";
+import * as React from "react";
 import { UserMenu } from "./UserMenu";
 
 export type ViewKey =
@@ -53,7 +53,7 @@ export function Sidebar({ current, onSelect }: Props) {
         <div className="flex h-6 w-6 items-center justify-center rounded bg-foreground text-background">
           <span className="text-[10px] font-bold leading-none">μ</span>
         </div>
-        <span className="text-sm font-semibold tracking-tight">Macro</span>
+        <span className="text-sm font-semibold tracking-tight">Maqro</span>
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
