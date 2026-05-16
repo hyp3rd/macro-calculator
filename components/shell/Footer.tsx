@@ -1,6 +1,7 @@
 "use client";
 
 import { GITHUB_REPO_URL } from "@/lib/links";
+import { APP_VERSION } from "@/lib/version";
 import { useState } from "react";
 import { Bug } from "lucide-react";
 import Link from "next/link";
@@ -35,8 +36,14 @@ export function Footer() {
         className="border-t border-border/60 bg-background/60 px-5 py-3 text-[11px] text-muted-foreground"
       >
         <div className="mx-auto flex max-w-5xl flex-col items-center gap-2 sm:flex-row sm:justify-between">
-          <span className="text-center sm:text-left">
-            Maqro · Open source · Free of charge
+          <span className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-center sm:text-left">
+            <span>Maqro · Open source · Free of charge</span>
+            <span
+              className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/80"
+              title="App version"
+            >
+              v{APP_VERSION}
+            </span>
           </span>
           <div className="flex items-center gap-3">
             <Link

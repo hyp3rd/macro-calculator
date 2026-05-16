@@ -39,10 +39,11 @@ export function MobileBottomNav({ current, onSelect }: Props) {
     <nav
       aria-label="Primary navigation (mobile)"
       className={cn(
+        // h-14 = 56px (Apple HIG 44pt minimum + slack for the label).
+        // Saturated background so titles below don't bleed through the
+        // blur on light pages. pb-safe adds the home-indicator inset.
         "fixed inset-x-0 bottom-0 z-40 flex h-14 items-stretch border-t border-border/60 bg-background/95 backdrop-blur",
-        "md:hidden",
-        // Respect iOS safe-area inset on devices with a home indicator.
-        "pb-[env(safe-area-inset-bottom)]",
+        "md:hidden pb-safe",
       )}
     >
       {NAV.map((item) => {
@@ -54,11 +55,13 @@ export function MobileBottomNav({ current, onSelect }: Props) {
             type="button"
             onClick={() => onSelect(item.key)}
             className={cn(
+              // Phones have no hover state — use `active:` for the
+              // pressed visual instead so users get instant tactile
+              // feedback when their thumb lands on the target.
               "relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-              isActive
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
+              "active:bg-foreground/5",
+              isActive ? "text-foreground" : "text-muted-foreground",
             )}
             aria-current={isActive ? "page" : undefined}
           >

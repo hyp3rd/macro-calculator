@@ -45,10 +45,13 @@ export function AppShell({ current, onSelect, children }: Props) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
-              // Bottom padding on mobile clears the fixed bottom tab bar
-              // (h-14 + safe-area). Desktop has the sidebar instead, no
-              // bottom obstruction → no extra padding needed.
-              className="mx-auto w-full max-w-6xl flex-1 px-6 py-8 lg:py-10"
+              // Tighter horizontal + vertical padding on mobile so
+              // content gets every spare pixel of the 375 px viewport.
+              // sm+ goes back to the original generous padding. Bottom
+              // padding on mobile is added below the AnimatePresence —
+              // see `pb-24 md:pb-0` on the footer wrapper — to clear
+              // the fixed bottom tab bar (h-14 + safe-area).
+              className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 sm:px-6 sm:py-8 lg:py-10"
             >
               {children}
             </motion.div>

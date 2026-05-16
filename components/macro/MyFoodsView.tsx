@@ -145,102 +145,179 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
               : "No matches for that filter."}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/60 bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2 text-left">Name</th>
-                  <th className="px-3 py-2 text-left">Kind</th>
-                  <th className="px-3 py-2 text-center">P</th>
-                  <th className="px-3 py-2 text-center">C</th>
-                  <th className="px-3 py-2 text-center">F</th>
-                  <th className="px-3 py-2 text-center">kcal</th>
-                  <th
-                    className="w-24 px-3 py-2 text-right"
-                    aria-hidden
-                  />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {filtered.map((food) => (
-                  <tr
-                    key={food.id}
-                    className="transition-colors hover:bg-muted/40"
-                  >
-                    <td className="px-3 py-2.5">
-                      <div className="flex flex-col">
-                        <span className="text-foreground">{food.name}</span>
-                        {food.brand && (
-                          <span className="text-[11px] text-muted-foreground">
-                            {food.brand}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
+          <>
+            {/* Mobile: card list. The 7-column table is unreadable
+                below ~640px even with horizontal scroll — too much
+                squinting + sideways panning. Cards put the food name
+                front and centre with macros in a compact inline row. */}
+            <ul className="divide-y divide-border/60 sm:hidden">
+              {filtered.map((food) => (
+                <li
+                  key={food.id}
+                  className="flex items-start gap-3 px-4 py-3 active:bg-muted/30"
+                >
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {food.name}
+                      </span>
                       {food.dietKind ? (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                           {food.dietKind}
                         </span>
                       ) : (
-                        <span className="text-[11px] italic text-amber-700 dark:text-amber-400">
+                        <span className="shrink-0 text-[10px] italic text-amber-700 dark:text-amber-400">
                           unclassified
                         </span>
                       )}
-                    </td>
-                    <td
-                      className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
-                      style={{ color: "hsl(var(--macro-protein))" }}
+                    </div>
+                    {food.brand && (
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {food.brand}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums">
+                      <span className="font-medium text-foreground">
+                        {food.calories} kcal
+                      </span>
+                      <span style={{ color: "hsl(var(--macro-protein))" }}>
+                        P{food.protein}
+                      </span>
+                      <span style={{ color: "hsl(var(--macro-carbs))" }}>
+                        C{food.carbs}
+                      </span>
+                      <span style={{ color: "hsl(var(--macro-fat))" }}>
+                        F{food.fat}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 text-muted-foreground"
+                      onClick={() => {
+                        setEditing(food);
+                        setFormOpen(true);
+                      }}
+                      aria-label={`Edit ${food.name}`}
                     >
-                      {food.protein}g
-                    </td>
-                    <td
-                      className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
-                      style={{ color: "hsl(var(--macro-carbs))" }}
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                      onClick={() => setPendingDelete(food)}
+                      aria-label={`Delete ${food.name}`}
                     >
-                      {food.carbs}g
-                    </td>
-                    <td
-                      className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
-                      style={{ color: "hsl(var(--macro-fat))" }}
-                    >
-                      {food.fat}g
-                    </td>
-                    <td className="px-3 py-2.5 text-center font-mono text-xs font-medium tabular-nums text-foreground">
-                      {food.calories}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground"
-                          onClick={() => {
-                            setEditing(food);
-                            setFormOpen(true);
-                          }}
-                          aria-label={`Edit ${food.name}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => setPendingDelete(food)}
-                          aria-label={`Delete ${food.name}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </td>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {/* Desktop: keep the dense table for at-a-glance comparison. */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <th className="px-3 py-2 text-left">Name</th>
+                    <th className="px-3 py-2 text-left">Kind</th>
+                    <th className="px-3 py-2 text-center">P</th>
+                    <th className="px-3 py-2 text-center">C</th>
+                    <th className="px-3 py-2 text-center">F</th>
+                    <th className="px-3 py-2 text-center">kcal</th>
+                    <th
+                      className="w-24 px-3 py-2 text-right"
+                      aria-hidden
+                    />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filtered.map((food) => (
+                    <tr
+                      key={food.id}
+                      className="transition-colors hover:bg-muted/40"
+                    >
+                      <td className="px-3 py-2.5">
+                        <div className="flex flex-col">
+                          <span className="text-foreground">{food.name}</span>
+                          {food.brand && (
+                            <span className="text-[11px] text-muted-foreground">
+                              {food.brand}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {food.dietKind ? (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {food.dietKind}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] italic text-amber-700 dark:text-amber-400">
+                            unclassified
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
+                        style={{ color: "hsl(var(--macro-protein))" }}
+                      >
+                        {food.protein}g
+                      </td>
+                      <td
+                        className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
+                        style={{ color: "hsl(var(--macro-carbs))" }}
+                      >
+                        {food.carbs}g
+                      </td>
+                      <td
+                        className="px-3 py-2.5 text-center font-mono text-xs tabular-nums"
+                        style={{ color: "hsl(var(--macro-fat))" }}
+                      >
+                        {food.fat}g
+                      </td>
+                      <td className="px-3 py-2.5 text-center font-mono text-xs font-medium tabular-nums text-foreground">
+                        {food.calories}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground"
+                            onClick={() => {
+                              setEditing(food);
+                              setFormOpen(true);
+                            }}
+                            aria-label={`Edit ${food.name}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => setPendingDelete(food)}
+                            aria-label={`Delete ${food.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 

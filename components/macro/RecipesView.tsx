@@ -125,19 +125,20 @@ export function RecipesView({ profile }: Props) {
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between gap-2">
-        <div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight">Recipes</h2>
           <p className="text-xs text-muted-foreground">
             Named bundles of ingredients you can apply to any meal slot.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => setGenerateOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <Sparkles className="mr-1.5 h-3.5 w-3.5" />
             Generate
@@ -149,6 +150,7 @@ export function RecipesView({ profile }: Props) {
               setEditing(undefined);
               setFormOpen(true);
             }}
+            className="flex-1 sm:flex-none"
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             New recipe

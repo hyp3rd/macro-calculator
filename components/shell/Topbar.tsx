@@ -18,11 +18,15 @@ type Props = { current: ViewKey };
 
 export function Topbar({ current }: Props) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-background/80 px-4 backdrop-blur-sm sm:px-6">
+    // `pt-safe` pushes the bar down by the notch / status bar height in
+    // PWA standalone mode. `h-14` is the inner content height; total
+    // header height grows by the safe-area inset, which keeps the title
+    // and toolbar buttons fully tappable.
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-background/80 px-4 pt-safe backdrop-blur-sm sm:px-6">
       <h1 className="text-sm font-semibold tracking-tight text-foreground">
         {LABELS[current]}
       </h1>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <SyncStatusPill />
         <ThemeToggle />
         {/* The UserMenu lives in the desktop sidebar footer; mirror it in
