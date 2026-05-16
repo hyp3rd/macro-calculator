@@ -345,7 +345,25 @@ export async function planImport(raw: unknown): Promise<ImportPlan> {
     localCustom,
     (row) => row.id,
     isCustomFood,
-    (a, b) => eq({ ...a, createdAt: 0 }, { ...b, createdAt: 0 }),
+    (a, b) =>
+      // Compare content only — strip transient sync metadata
+      // (`createdAt`, `localUpdatedAt`, `serverUpdatedAt`) that
+      // legitimately differs across export/import even when the food
+      // itself hasn't changed.
+      eq(
+        {
+          ...a,
+          createdAt: 0,
+          localUpdatedAt: undefined,
+          serverUpdatedAt: undefined,
+        },
+        {
+          ...b,
+          createdAt: 0,
+          localUpdatedAt: undefined,
+          serverUpdatedAt: undefined,
+        },
+      ),
   );
   const mealTemplates = diffRows<MealTemplate, MealTemplate>(
     bundle.data.mealTemplates,
@@ -353,7 +371,7 @@ export async function planImport(raw: unknown): Promise<ImportPlan> {
     (row) => row.id,
     isMealTemplate,
     // Ignore updatedAt/createdAt churn — a template is "the same" iff
-    // its name + foods match.
+    // its name + foods match. (Sync metadata is not compared either.)
     (a, b) => a.name === b.name && eq(a.foods, b.foods),
   );
   const recipes = diffRows<Recipe, Recipe>(

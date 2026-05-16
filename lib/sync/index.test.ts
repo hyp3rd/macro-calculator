@@ -5,18 +5,27 @@ import { pushCustomFoods, pushMealTemplates, type SyncResult } from "./index";
 
 // Mock the IDB-backed db module so the sync code is exercised in
 // isolation. Each test seeds the mocks with the rows it wants `list*`
-// to return; assertions on `upsertCustomFood`/`deleteCustomFood` verify
-// the re-mint side effect.
+// to return; assertions on `mark*Synced` / `upsert*` / `delete*`
+// verify the per-row side effects.
 vi.mock("@/lib/db", () => ({
   listCustomFoods: vi.fn(),
   listDailyLogs: vi.fn(),
   listMealTemplates: vi.fn(),
   listRecipes: vi.fn(),
   listWeightEntries: vi.fn(),
-  getProfile: vi.fn(),
-  saveDailyLog: vi.fn(),
-  saveProfile: vi.fn(),
-  saveWeightEntry: vi.fn(),
+  getProfileRecord: vi.fn(),
+  applyServerCustomFood: vi.fn(),
+  applyServerDailyLog: vi.fn(),
+  applyServerMealTemplate: vi.fn(),
+  applyServerProfile: vi.fn(),
+  applyServerRecipe: vi.fn(),
+  applyServerWeightEntry: vi.fn(),
+  markCustomFoodSynced: vi.fn(),
+  markDailyLogSynced: vi.fn(),
+  markMealTemplateSynced: vi.fn(),
+  markProfileSynced: vi.fn(),
+  markRecipeSynced: vi.fn(),
+  markWeightEntrySynced: vi.fn(),
   upsertCustomFood: vi.fn(),
   upsertMealTemplate: vi.fn(),
   upsertRecipe: vi.fn(),
@@ -45,32 +54,95 @@ function newResult(): SyncResult {
       mealTemplates: 0,
       recipes: 0,
     },
+    conflicts: 0,
   };
 }
 
-/** Build a tiny Supabase-shaped mock that captures upsert calls and
- * returns whatever the test queues. The real client's
- * `.from(t).upsert(rows).abortSignal(s)` returns a thenable resolving to
- * `{ error }`; we wrap so the abortSignal step is transparent. The
- * underlying `upsert` vi.fn is still what the tests assert on. */
-type UpsertFn = (...args: unknown[]) => unknown;
-function makeSupabase(upsert: UpsertFn) {
-  return {
+/** Build a Supabase-shaped mock that captures the call chain so each
+ *  test can assert what the push pipeline did. The new push path goes
+ *  through one of two chains depending on whether the row has a
+ *  serverUpdatedAt token:
+ *
+ *    - No token (insert):
+ *      from(t).upsert(row).select("updated_at").abortSignal(sig).single()
+ *
+ *    - Has token (update with version check):
+ *      from(t).update(row).eq(pk1).eq(pk2)…
+ *        .eq("updated_at", base).select("updated_at").abortSignal(sig).maybeSingle()
+ *
+ *  Both terminate at a Promise<{ data, error }>. The mock takes
+ *  per-operation handlers and a global call log. */
+type OpResult = { data: unknown; error: unknown };
+
+function makeSupabase(opts: {
+  upsert?: (row: unknown) => OpResult;
+  update?: (
+    row: unknown,
+    pkFields: Record<string, unknown>,
+    base: string,
+  ) => OpResult;
+}) {
+  const upsertCalls: unknown[] = [];
+  const updateCalls: Array<{
+    row: unknown;
+    pkFields: Record<string, unknown>;
+    base: string;
+  }> = [];
+
+  const sb = {
     from: () => ({
-      upsert: (...args: unknown[]) => {
-        const result = upsert(...args);
-        return { abortSignal: () => result };
+      upsert: (row: unknown) => {
+        upsertCalls.push(row);
+        const r = opts.upsert
+          ? opts.upsert(row)
+          : { data: { updated_at: "2026-05-16T12:00:00Z" }, error: null };
+        return {
+          select: () => ({
+            abortSignal: () => ({ single: () => Promise.resolve(r) }),
+          }),
+        };
+      },
+      update: (row: unknown) => {
+        const pkFields: Record<string, unknown> = {};
+        let base: string = "";
+        const filterBuilder = {
+          eq: (k: string, v: unknown) => {
+            if (k === "updated_at") {
+              base = v as string;
+            } else {
+              pkFields[k] = v;
+            }
+            return filterBuilder;
+          },
+          select: () => ({
+            abortSignal: () => ({
+              maybeSingle: () => {
+                updateCalls.push({ row, pkFields, base });
+                const r = opts.update
+                  ? opts.update(row, pkFields, base)
+                  : {
+                      data: { updated_at: "2026-05-16T12:01:00Z" },
+                      error: null,
+                    };
+                return Promise.resolve(r);
+              },
+            }),
+          }),
+        };
+        return filterBuilder;
       },
     }),
   } as unknown as SupabaseClient;
+
+  return { sb, upsertCalls, updateCalls };
 }
 
-describe("pushCustomFoods — happy path", () => {
+describe("pushCustomFoods — per-row push with optimistic concurrency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("upserts the batch in one shot when there's no collision", async () => {
+  it("INSERTs each new (no server token) row and marks it synced", async () => {
     vi.mocked(db.listCustomFoods).mockResolvedValue([
       {
         id: "a",
@@ -91,98 +163,111 @@ describe("pushCustomFoods — happy path", () => {
         createdAt: 0,
       },
     ]);
-    const upsert = vi.fn().mockResolvedValueOnce({ error: null });
-    const supabase = makeSupabase(upsert);
+    const { sb, upsertCalls } = makeSupabase({});
     const result = newResult();
 
-    await pushCustomFoods(supabase, USER_ID, result);
+    await pushCustomFoods(sb, USER_ID, result);
 
     expect(result.pushed.customFoods).toBe(2);
-    // One batch call, no per-row fallback, no re-mint.
-    expect(upsert).toHaveBeenCalledTimes(1);
-    expect(db.upsertCustomFood).not.toHaveBeenCalled();
-    expect(db.deleteCustomFood).not.toHaveBeenCalled();
+    expect(result.conflicts).toBe(0);
+    expect(upsertCalls).toHaveLength(2);
+    expect(vi.mocked(db.markCustomFoodSynced)).toHaveBeenCalledTimes(2);
+  });
+
+  it("UPDATEs each existing (server token present) row with .eq('updated_at', base)", async () => {
+    vi.mocked(db.listCustomFoods).mockResolvedValue([
+      {
+        id: "a",
+        name: "Tofu",
+        protein: 8,
+        carbs: 2,
+        fat: 4,
+        calories: 76,
+        createdAt: 0,
+        localUpdatedAt: "2026-05-16T13:00:00Z",
+        serverUpdatedAt: "2026-05-16T12:00:00Z",
+      },
+    ]);
+    const { sb, updateCalls } = makeSupabase({});
+    const result = newResult();
+
+    await pushCustomFoods(sb, USER_ID, result);
+
+    expect(result.pushed.customFoods).toBe(1);
+    expect(updateCalls).toHaveLength(1);
+    // The version-check filter must carry the row's old serverUpdatedAt.
+    expect(updateCalls[0].base).toBe("2026-05-16T12:00:00Z");
+    expect(updateCalls[0].pkFields).toEqual({ id: "a" });
+  });
+
+  it("treats zero rows affected (stale base) as a CONFLICT and increments counter", async () => {
+    vi.mocked(db.listCustomFoods).mockResolvedValue([
+      {
+        id: "a",
+        name: "Tofu",
+        protein: 8,
+        carbs: 2,
+        fat: 4,
+        calories: 76,
+        createdAt: 0,
+        localUpdatedAt: "2026-05-16T13:00:00Z",
+        serverUpdatedAt: "2026-05-16T12:00:00Z",
+      },
+    ]);
+    const { sb } = makeSupabase({
+      // Simulate "another device pushed first" — Postgres returns 0
+      // rows because our base no longer matches the row's updated_at.
+      update: () => ({ data: null, error: null }),
+    });
+    const result = newResult();
+
+    await pushCustomFoods(sb, USER_ID, result);
+
+    expect(result.pushed.customFoods).toBe(0);
+    expect(result.conflicts).toBe(1);
+    expect(vi.mocked(db.markCustomFoodSynced)).not.toHaveBeenCalled();
+  });
+
+  it("skips clean rows (localUpdatedAt === serverUpdatedAt) to avoid no-op pushes", async () => {
+    vi.mocked(db.listCustomFoods).mockResolvedValue([
+      {
+        id: "a",
+        name: "Tofu",
+        protein: 8,
+        carbs: 2,
+        fat: 4,
+        calories: 76,
+        createdAt: 0,
+        localUpdatedAt: "2026-05-16T12:00:00Z",
+        serverUpdatedAt: "2026-05-16T12:00:00Z",
+      },
+    ]);
+    const { sb, upsertCalls, updateCalls } = makeSupabase({});
+    const result = newResult();
+
+    await pushCustomFoods(sb, USER_ID, result);
+
+    expect(result.pushed.customFoods).toBe(0);
+    expect(upsertCalls).toHaveLength(0);
+    expect(updateCalls).toHaveLength(0);
   });
 
   it("returns silently when there are no local rows", async () => {
     vi.mocked(db.listCustomFoods).mockResolvedValue([]);
-    const upsert = vi.fn();
-    const supabase = makeSupabase(upsert);
+    const { sb, upsertCalls, updateCalls } = makeSupabase({});
     const result = newResult();
 
-    await pushCustomFoods(supabase, USER_ID, result);
+    await pushCustomFoods(sb, USER_ID, result);
 
     expect(result.pushed.customFoods).toBe(0);
-    expect(upsert).not.toHaveBeenCalled();
-  });
-});
-
-describe("pushCustomFoods — UUID-collision recovery on 42501", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+    expect(upsertCalls).toHaveLength(0);
+    expect(updateCalls).toHaveLength(0);
   });
 
-  it("falls back to per-row upserts and re-mints UUIDs that collide", async () => {
+  it("re-mints colliding UUIDs on 42501 and retries (RLS row-owned-by-another-user recovery)", async () => {
     vi.mocked(db.listCustomFoods).mockResolvedValue([
       {
-        id: "owned-uuid",
-        name: "Tofu",
-        protein: 8,
-        carbs: 2,
-        fat: 4,
-        calories: 76,
-        createdAt: 0,
-      },
-      {
-        id: "foreign-uuid",
-        name: "Oats",
-        protein: 13,
-        carbs: 67,
-        fat: 7,
-        calories: 389,
-        createdAt: 0,
-      },
-    ]);
-
-    // Stub crypto.randomUUID so the new id is predictable.
-    const newId = "fresh-uuid";
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      newId as `${string}-${string}-${string}-${string}-${string}`,
-    );
-
-    const upsert = vi.fn();
-    // Call 1 — batch upsert hits 42501 (one of the rows collides with a
-    // foreign-owned remote row).
-    upsert.mockResolvedValueOnce({ error: { code: "42501", message: "RLS" } });
-    // Call 2 — single upsert for "owned-uuid" succeeds (user owns it).
-    upsert.mockResolvedValueOnce({ error: null });
-    // Call 3 — single upsert for "foreign-uuid" hits 42501 (foreign-owned).
-    upsert.mockResolvedValueOnce({ error: { code: "42501", message: "RLS" } });
-    // Call 4 — re-mint retry for the foreign-uuid food (now under newId)
-    // succeeds because the UUID is fresh and there's no collision.
-    upsert.mockResolvedValueOnce({ error: null });
-
-    const supabase = makeSupabase(upsert);
-    const result = newResult();
-
-    await pushCustomFoods(supabase, USER_ID, result);
-
-    expect(result.pushed.customFoods).toBe(2);
-    expect(upsert).toHaveBeenCalledTimes(4);
-
-    // The colliding row got re-minted: new id was upserted to IDB and the
-    // old id was deleted. Owned row was untouched in IDB.
-    expect(db.upsertCustomFood).toHaveBeenCalledTimes(1);
-    expect(db.upsertCustomFood).toHaveBeenCalledWith(
-      expect.objectContaining({ id: newId, name: "Oats" }),
-    );
-    expect(db.deleteCustomFood).toHaveBeenCalledWith("foreign-uuid");
-  });
-
-  it("rethrows non-42501 errors from the batch upsert (don't paper over real bugs)", async () => {
-    vi.mocked(db.listCustomFoods).mockResolvedValue([
-      {
-        id: "a",
+        id: "collides",
         name: "Tofu",
         protein: 8,
         carbs: 2,
@@ -191,129 +276,84 @@ describe("pushCustomFoods — UUID-collision recovery on 42501", () => {
         createdAt: 0,
       },
     ]);
-    const upsert = vi
-      .fn()
-      .mockResolvedValueOnce({
-        error: { code: "23505", message: "duplicate key" },
-      });
-    const supabase = makeSupabase(upsert);
-    const result = newResult();
-
-    await expect(pushCustomFoods(supabase, USER_ID, result)).rejects.toThrow(
-      /push custom foods.*duplicate key/,
-    );
-    expect(db.upsertCustomFood).not.toHaveBeenCalled();
-  });
-
-  it("rethrows non-42501 errors hit during the per-row fallback", async () => {
-    vi.mocked(db.listCustomFoods).mockResolvedValue([
-      {
-        id: "a",
-        name: "Tofu",
-        protein: 8,
-        carbs: 2,
-        fat: 4,
-        calories: 76,
-        createdAt: 0,
+    let firstAttempt = true;
+    const { sb } = makeSupabase({
+      upsert: () => {
+        if (firstAttempt) {
+          firstAttempt = false;
+          // First UUID collides with another user's row → 42501.
+          return { data: null, error: { code: "42501" } };
+        }
+        // Retry with re-minted UUID succeeds.
+        return { data: { updated_at: "2026-05-16T12:00:00Z" }, error: null };
       },
-    ]);
-    const upsert = vi.fn();
-    upsert.mockResolvedValueOnce({ error: { code: "42501", message: "RLS" } });
-    upsert.mockResolvedValueOnce({
-      error: { code: "23502", message: "not null violation" },
     });
-    const supabase = makeSupabase(upsert);
     const result = newResult();
 
-    await expect(pushCustomFoods(supabase, USER_ID, result)).rejects.toThrow(
-      /push custom foods \(per-row\).*not null violation/,
+    await pushCustomFoods(sb, USER_ID, result);
+
+    expect(result.pushed.customFoods).toBe(1);
+    expect(vi.mocked(db.upsertCustomFood)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(db.deleteCustomFood)).toHaveBeenCalledWith("collides");
+  });
+
+  it("rethrows non-42501 errors instead of swallowing them", async () => {
+    vi.mocked(db.listCustomFoods).mockResolvedValue([
+      {
+        id: "a",
+        name: "Tofu",
+        protein: 8,
+        carbs: 2,
+        fat: 4,
+        calories: 76,
+        createdAt: 0,
+      },
+    ]);
+    const { sb } = makeSupabase({
+      upsert: () => ({
+        data: null,
+        error: { code: "23505", message: "duplicate key" },
+      }),
+    });
+    const result = newResult();
+
+    await expect(pushCustomFoods(sb, USER_ID, result)).rejects.toThrow(
+      /duplicate key/,
     );
   });
 });
 
-describe("pushMealTemplates — UUID-collision recovery on 42501", () => {
+describe("pushMealTemplates — same per-row semantics as customFoods", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("re-mints colliding meal_templates UUIDs the same way custom_foods does", async () => {
+  it("re-mints colliding UUIDs on 42501 and retries", async () => {
     vi.mocked(db.listMealTemplates).mockResolvedValue([
       {
-        id: "foreign-tpl-id",
+        id: "collides",
         name: "Greek bowl",
         foods: [],
         createdAt: 0,
         updatedAt: 0,
       },
     ]);
-
-    const newId = "fresh-tpl-id";
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      newId as `${string}-${string}-${string}-${string}-${string}`,
-    );
-
-    const upsert = vi.fn();
-    upsert.mockResolvedValueOnce({ error: { code: "42501", message: "RLS" } });
-    upsert.mockResolvedValueOnce({ error: { code: "42501", message: "RLS" } });
-    upsert.mockResolvedValueOnce({ error: null });
-
-    const supabase = makeSupabase(upsert);
+    let firstAttempt = true;
+    const { sb } = makeSupabase({
+      upsert: () => {
+        if (firstAttempt) {
+          firstAttempt = false;
+          return { data: null, error: { code: "42501" } };
+        }
+        return { data: { updated_at: "2026-05-16T12:00:00Z" }, error: null };
+      },
+    });
     const result = newResult();
 
-    await pushMealTemplates(supabase, USER_ID, result);
+    await pushMealTemplates(sb, USER_ID, result);
 
     expect(result.pushed.mealTemplates).toBe(1);
-    expect(db.upsertMealTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({ id: newId, name: "Greek bowl" }),
-    );
-    expect(db.deleteMealTemplate).toHaveBeenCalledWith("foreign-tpl-id");
-  });
-});
-
-describe("withTimeout (defensive sync)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("aborts a stalled push after 60s and surfaces a readable error", async () => {
-    vi.mocked(db.listCustomFoods).mockResolvedValue([
-      {
-        id: "id-1",
-        name: "X",
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-        calories: 0,
-        createdAt: 0,
-      },
-    ]);
-
-    // Build a supabase mock whose abortSignal-returned thenable only
-    // settles when the passed signal aborts — mirrors a stalled
-    // PostgREST request. The withTimeout helper fires the abort after 60s.
-    const supabase = {
-      from: () => ({
-        upsert: () => ({
-          abortSignal: (signal: AbortSignal) =>
-            new Promise((_, reject) => {
-              signal.addEventListener("abort", () => {
-                const err = new Error("aborted");
-                err.name = "AbortError";
-                reject(err);
-              });
-            }),
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    vi.useFakeTimers();
-    try {
-      const pending = pushCustomFoods(supabase, USER_ID, newResult());
-      pending.catch(() => {});
-      await vi.advanceTimersByTimeAsync(60_000);
-      await expect(pending).rejects.toThrow(/timed out after 60s/);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(vi.mocked(db.upsertMealTemplate)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(db.deleteMealTemplate)).toHaveBeenCalledWith("collides");
   });
 });

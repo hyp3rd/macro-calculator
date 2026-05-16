@@ -1,21 +1,35 @@
 "use client";
 
+import type { Recipe } from "@/components/macro/types";
 import {
+  applyServerCustomFood,
+  applyServerDailyLog,
+  applyServerMealTemplate,
+  applyServerProfile,
+  applyServerRecipe,
+  applyServerWeightEntry,
   deleteCustomFood,
   deleteMealTemplate,
   deleteRecipe,
-  getProfile,
+  getProfileRecord,
   listCustomFoods,
   listDailyLogs,
   listMealTemplates,
   listRecipes,
   listWeightEntries,
-  saveDailyLog,
-  saveProfile,
-  saveWeightEntry,
+  markCustomFoodSynced,
+  markDailyLogSynced,
+  markMealTemplateSynced,
+  markProfileSynced,
+  markRecipeSynced,
+  markWeightEntrySynced,
   upsertCustomFood,
   upsertMealTemplate,
   upsertRecipe,
+  type CustomFood,
+  type DailyLog,
+  type MealTemplate,
+  type WeightEntry,
 } from "@/lib/db";
 import {
   getSyncStatus,
@@ -62,6 +76,11 @@ export type SyncResult = {
     mealTemplates: number;
     recipes: number;
   };
+  /** Rows whose push was rejected because another device had already
+   *  changed them since we last pulled. The conflict UI (Pass 2) reads
+   *  this to tell the user what didn't sync; for now sync-status pill
+   *  surfaces the count. */
+  conflicts: number;
 };
 
 const ZERO_COUNTS = {
@@ -73,11 +92,15 @@ const ZERO_COUNTS = {
   recipes: 0,
 };
 
-/** Push every local row to Supabase via upsert, then pull every remote row
- * into local IDB. Idempotent — the database's last-write-wins triggers
- * (updated_at) plus the upsert semantics let this run repeatedly without
- * duplicating rows. Phase 4b semantic: this is a one-shot reconcile that
- * fires on sign-in, not a continuous loop. */
+/** Push every dirty local row to Supabase with an optimistic-concurrency
+ *  check (`.eq("updated_at", serverUpdatedAt)`), then pull every remote
+ *  row and apply it locally as the new canonical state. Conflicts on
+ *  push (push rejected because a peer device changed the row first) are
+ *  counted and surfaced via the result; the row stays dirty so the
+ *  *next* sync, post-pull, has a fresh base to retry from.
+ *
+ *  Idempotent — re-running converges to the latest server state for
+ *  every clean row and pushes any still-dirty rows on the next attempt. */
 export async function runInitialSync(
   supabase: SupabaseClient,
   userId: string,
@@ -85,6 +108,7 @@ export async function runInitialSync(
   const result: SyncResult = {
     pushed: { ...ZERO_COUNTS },
     pulled: { ...ZERO_COUNTS },
+    conflicts: 0,
   };
 
   await pushProfile(supabase, userId, result);
@@ -105,10 +129,7 @@ export async function runInitialSync(
 }
 
 /** Wraps {@link runInitialSync} with sync-status side-effects so both the
- * auto-sync on sign-in and any manual "Sync now" button share one path.
- * If a sync is already in flight, returns `null` rather than queueing a
- * second one — concurrent runs against the same user would just race the
- * upserts. */
+ * auto-sync on sign-in and any manual "Sync now" button share one path. */
 export async function triggerSync(
   supabase: SupabaseClient,
   userId: string,
@@ -125,16 +146,8 @@ export async function triggerSync(
   }
 }
 
-/** Per-call timeout for every Supabase request inside `runInitialSync`.
- *  Far longer than the median round-trip (<1 s) — sized to catch truly
- *  hung connections rather than slow ones. */
 const CALL_TIMEOUT_MS = 60_000;
 
-/** Run a single Supabase call with a per-call AbortController. Passes the
- *  signal to the caller so it can be attached via PostgREST's
- *  `.abortSignal(signal)`. On timeout, throws a labelled Error so the
- *  sync-status pill can surface a readable reason rather than an
- *  indefinite spinner. */
 async function withTimeout<T>(
   label: string,
   fn: (signal: AbortSignal) => PromiseLike<T>,
@@ -156,12 +169,6 @@ async function withTimeout<T>(
   }
 }
 
-/** Turn a Supabase PostgrestError into a real `Error` so the message
- * survives React's runtime-error overlay (which calls `.toString()` on
- * thrown values — plain objects render as "[object Object]"). Includes
- * the PGRST/Postgres code when present so 403s carry the actual cause
- * (column grant, RLS, schema-cache stale, etc). Exported so the unit
- * test can pin its formatting; not part of the public sync API. */
 export function asError(
   err: { message?: string; code?: string; details?: string; hint?: string },
   context: string,
@@ -172,6 +179,92 @@ export function asError(
   return new Error(`${context}: ${parts.join(" ")}`);
 }
 
+// ─── Push helpers ──────────────────────────────────────────────────────────
+
+/** One-row push outcome. */
+type PushResult =
+  | { status: "inserted" | "updated"; serverUpdatedAt: string }
+  | { status: "conflict" }
+  | { status: "uuid-collision" };
+
+/** Generic per-row push with optimistic concurrency. If `serverUpdatedAt`
+ *  is null (row was created locally, never reached the server), insert.
+ *  Otherwise UPDATE with the version check — if zero rows are affected,
+ *  the row's version on the server has moved on, which we treat as a
+ *  conflict. The caller is responsible for marking the local row as
+ *  synced via the returned `serverUpdatedAt`.
+ *
+ *  Why generic: every table is a copy of the same dance, only the table
+ *  name and PK filters differ. Centralizing it keeps the per-table push
+ *  functions to a handful of lines each. */
+async function pushRow<Row extends object>(
+  supabase: SupabaseClient,
+  table: string,
+  row: Row,
+  pkFields: Record<string, string | number>,
+  serverUpdatedAt: string | null | undefined,
+  label: string,
+): Promise<PushResult> {
+  if (!serverUpdatedAt) {
+    // No server token — either a fresh local row or a row whose token
+    // was lost. upsert handles both: row exists upstream → update;
+    // doesn't → insert. The .select() round-trip gives us the new
+    // server-side updated_at.
+    const { data, error } = await withTimeout(label, (signal) =>
+      supabase
+        .from(table)
+        .upsert(row)
+        .select("updated_at")
+        .abortSignal(signal)
+        .single(),
+    );
+    if (error) {
+      // RLS row-owned-by-someone-else (UUID collision across users)
+      // surfaces here as 42501. Caller can retry with a fresh UUID.
+      if ((error as { code?: string }).code === "42501") {
+        return { status: "uuid-collision" };
+      }
+      throw asError(error, label);
+    }
+    return {
+      status: "inserted",
+      serverUpdatedAt: (data as { updated_at: string }).updated_at,
+    };
+  }
+  // Existing row — UPDATE with version check. Postgres evaluates WHERE
+  // before the trigger that bumps updated_at, so the equality matches
+  // the *pre-update* value. A mismatch returns zero rows. We chain the
+  // PK filters first (one .eq() per field) and the version filter last.
+  const { data, error } = await withTimeout(label, (signal) => {
+    let q = supabase.from(table).update(row);
+    for (const [k, v] of Object.entries(pkFields)) {
+      q = q.eq(k, v);
+    }
+    return q
+      .eq("updated_at", serverUpdatedAt)
+      .select("updated_at")
+      .abortSignal(signal)
+      .maybeSingle();
+  });
+  if (error) throw asError(error, label);
+  if (!data) return { status: "conflict" };
+  return {
+    status: "updated",
+    serverUpdatedAt: (data as { updated_at: string }).updated_at,
+  };
+}
+
+/** A local row is "dirty" — needs pushing — when its server token is
+ *  missing or doesn't match its local-mod token. Centralized so the
+ *  semantics are identical for every store. */
+function isDirty(row: {
+  localUpdatedAt?: string;
+  serverUpdatedAt?: string | null;
+}): boolean {
+  if (!row.serverUpdatedAt) return true;
+  return row.localUpdatedAt !== row.serverUpdatedAt;
+}
+
 // ─── Push ──────────────────────────────────────────────────────────────────
 
 async function pushProfile(
@@ -179,14 +272,26 @@ async function pushProfile(
   userId: string,
   result: SyncResult,
 ) {
-  const profile = await getProfile();
+  const profile = await getProfileRecord();
   if (!profile) return;
-  const row = profileToRow(userId, profile);
-  const { error } = await withTimeout("push profile", (signal) =>
-    supabase.from("profiles").upsert(row).abortSignal(signal),
+  if (!isDirty(profile)) return;
+  const row = profileToRow(userId, stripVersioned(profile));
+  const outcome = await pushRow<Pick<ProfileRow, "user_id" | "payload">>(
+    supabase,
+    "profiles",
+    row,
+    { user_id: userId },
+    profile.serverUpdatedAt,
+    "push profile",
   );
-  if (error) throw asError(error, "push profile");
-  result.pushed.profile = 1;
+  if (outcome.status === "conflict") {
+    result.conflicts++;
+    return;
+  }
+  if (outcome.status === "inserted" || outcome.status === "updated") {
+    await markProfileSynced(outcome.serverUpdatedAt);
+    result.pushed.profile = 1;
+  }
 }
 
 async function pushDailyLogs(
@@ -195,13 +300,26 @@ async function pushDailyLogs(
   result: SyncResult,
 ) {
   const logs = await listDailyLogs();
-  if (logs.length === 0) return;
-  const rows = logs.map((l) => dailyLogToRow(userId, l));
-  const { error } = await withTimeout("push daily logs", (signal) =>
-    supabase.from("daily_logs").upsert(rows).abortSignal(signal),
-  );
-  if (error) throw asError(error, "push daily logs");
-  result.pushed.dailyLogs = rows.length;
+  for (const log of logs) {
+    if (!isDirty(log)) continue;
+    const row = dailyLogToRow(userId, log);
+    const outcome = await pushRow(
+      supabase,
+      "daily_logs",
+      row,
+      { user_id: userId, date: log.date },
+      log.serverUpdatedAt,
+      "push daily log",
+    );
+    if (outcome.status === "conflict") {
+      result.conflicts++;
+      continue;
+    }
+    if (outcome.status === "inserted" || outcome.status === "updated") {
+      await markDailyLogSynced(log.date, outcome.serverUpdatedAt);
+      result.pushed.dailyLogs++;
+    }
+  }
 }
 
 async function pushWeightEntries(
@@ -210,13 +328,26 @@ async function pushWeightEntries(
   result: SyncResult,
 ) {
   const entries = await listWeightEntries();
-  if (entries.length === 0) return;
-  const rows = entries.map((e) => weightToRow(userId, e));
-  const { error } = await withTimeout("push weight history", (signal) =>
-    supabase.from("weight_history").upsert(rows).abortSignal(signal),
-  );
-  if (error) throw asError(error, "push weight history");
-  result.pushed.weightEntries = rows.length;
+  for (const entry of entries) {
+    if (!isDirty(entry)) continue;
+    const row = weightToRow(userId, entry);
+    const outcome = await pushRow(
+      supabase,
+      "weight_history",
+      row,
+      { user_id: userId, date: entry.date },
+      entry.serverUpdatedAt,
+      "push weight entry",
+    );
+    if (outcome.status === "conflict") {
+      result.conflicts++;
+      continue;
+    }
+    if (outcome.status === "inserted" || outcome.status === "updated") {
+      await markWeightEntrySynced(entry.date, outcome.serverUpdatedAt);
+      result.pushed.weightEntries++;
+    }
+  }
 }
 
 /** @internal Exported for unit tests. Not part of the stable sync API. */
@@ -226,55 +357,54 @@ export async function pushCustomFoods(
   result: SyncResult,
 ) {
   const foods = await listCustomFoods();
-  if (foods.length === 0) return;
-  const rows = foods.map((f) => customFoodToRow(userId, f));
-  const { error } = await withTimeout("push custom foods", (signal) =>
-    supabase.from("custom_foods").upsert(rows).abortSignal(signal),
-  );
-  if (!error) {
-    result.pushed.customFoods = rows.length;
-    return;
-  }
-
-  // Postgres 42501 + "(USING expression)" on a custom_foods upsert means a
-  // remote row exists with the same UUID owned by a different user — the
-  // RLS UPDATE path can't see it, so the whole batch fails. Recover by
-  // re-trying per row and re-minting the UUID on collision so the row
-  // INSERTs fresh under a guaranteed-unique key. The user's data is
-  // preserved; only the opaque id changes.
-  const code = (error as { code?: string }).code;
-  if (code !== "42501") throw asError(error, "push custom foods");
-
-  let pushed = 0;
   for (const food of foods) {
-    const row = customFoodToRow(userId, food);
-    const single = await withTimeout("push custom foods (per-row)", (signal) =>
-      supabase.from("custom_foods").upsert(row).abortSignal(signal),
+    if (!isDirty(food)) continue;
+    const outcome = await pushCustomFoodOnce(
+      supabase,
+      userId,
+      food,
+      "push custom food",
     );
-    if (!single.error) {
-      pushed++;
+    if (outcome === "conflict") {
+      result.conflicts++;
       continue;
     }
-    if ((single.error as { code?: string }).code !== "42501") {
-      throw asError(single.error, "push custom foods (per-row)");
-    }
-    // Collision on this row's UUID. Re-mint locally, then INSERT fresh.
-    const newId = crypto.randomUUID();
-    await upsertCustomFood({ ...food, id: newId });
-    await deleteCustomFood(food.id);
-    const retry = await withTimeout(
-      "push custom foods (re-mint retry)",
-      (signal) =>
-        supabase
-          .from("custom_foods")
-          .upsert(customFoodToRow(userId, { ...food, id: newId }))
-          .abortSignal(signal),
-    );
-    if (retry.error)
-      throw asError(retry.error, "push custom foods (re-mint retry)");
-    pushed++;
+    if (outcome === "synced") result.pushed.customFoods++;
   }
-  result.pushed.customFoods = pushed;
+}
+
+async function pushCustomFoodOnce(
+  supabase: SupabaseClient,
+  userId: string,
+  food: CustomFood,
+  label: string,
+): Promise<"synced" | "conflict"> {
+  const row = customFoodToRow(userId, food);
+  const outcome = await pushRow(
+    supabase,
+    "custom_foods",
+    row,
+    { id: food.id },
+    food.serverUpdatedAt,
+    label,
+  );
+  if (outcome.status === "conflict") return "conflict";
+  if (outcome.status === "uuid-collision") {
+    // Re-mint locally and retry once. Bubbles into a fresh INSERT
+    // path which goes through the no-server-token branch above.
+    const newId = crypto.randomUUID();
+    await upsertCustomFood({ ...food, id: newId, serverUpdatedAt: null });
+    await deleteCustomFood(food.id);
+    const retry = await pushCustomFoodOnce(
+      supabase,
+      userId,
+      { ...food, id: newId, serverUpdatedAt: null },
+      `${label} (re-mint retry)`,
+    );
+    return retry;
+  }
+  await markCustomFoodSynced(food.id, outcome.serverUpdatedAt);
+  return "synced";
 }
 
 /** @internal Exported for unit tests. Not part of the stable sync API. */
@@ -284,53 +414,51 @@ export async function pushMealTemplates(
   result: SyncResult,
 ) {
   const templates = await listMealTemplates();
-  if (templates.length === 0) return;
-  const rows = templates.map((t) => mealTemplateToRow(userId, t));
-  const { error } = await withTimeout("push meal templates", (signal) =>
-    supabase.from("meal_templates").upsert(rows).abortSignal(signal),
-  );
-  if (!error) {
-    result.pushed.mealTemplates = rows.length;
-    return;
-  }
-
-  // Same UUID-collision recovery as custom_foods: a remote row exists with
-  // the same UUID owned by another user → RLS UPDATE path is blocked → 403.
-  // Per-row retry; re-mint local UUID on collision and INSERT fresh.
-  const code = (error as { code?: string }).code;
-  if (code !== "42501") throw asError(error, "push meal templates");
-
-  let pushed = 0;
   for (const template of templates) {
-    const row = mealTemplateToRow(userId, template);
-    const single = await withTimeout(
-      "push meal templates (per-row)",
-      (signal) =>
-        supabase.from("meal_templates").upsert(row).abortSignal(signal),
+    if (!isDirty(template)) continue;
+    const outcome = await pushTemplateOnce(
+      supabase,
+      userId,
+      template,
+      "push meal template",
     );
-    if (!single.error) {
-      pushed++;
+    if (outcome === "conflict") {
+      result.conflicts++;
       continue;
     }
-    if ((single.error as { code?: string }).code !== "42501") {
-      throw asError(single.error, "push meal templates (per-row)");
-    }
-    const newId = crypto.randomUUID();
-    await upsertMealTemplate({ ...template, id: newId });
-    await deleteMealTemplate(template.id);
-    const retry = await withTimeout(
-      "push meal templates (re-mint retry)",
-      (signal) =>
-        supabase
-          .from("meal_templates")
-          .upsert(mealTemplateToRow(userId, { ...template, id: newId }))
-          .abortSignal(signal),
-    );
-    if (retry.error)
-      throw asError(retry.error, "push meal templates (re-mint retry)");
-    pushed++;
+    if (outcome === "synced") result.pushed.mealTemplates++;
   }
-  result.pushed.mealTemplates = pushed;
+}
+
+async function pushTemplateOnce(
+  supabase: SupabaseClient,
+  userId: string,
+  template: MealTemplate,
+  label: string,
+): Promise<"synced" | "conflict"> {
+  const row = mealTemplateToRow(userId, template);
+  const outcome = await pushRow(
+    supabase,
+    "meal_templates",
+    row,
+    { id: template.id },
+    template.serverUpdatedAt,
+    label,
+  );
+  if (outcome.status === "conflict") return "conflict";
+  if (outcome.status === "uuid-collision") {
+    const newId = crypto.randomUUID();
+    await upsertMealTemplate({ ...template, id: newId, serverUpdatedAt: null });
+    await deleteMealTemplate(template.id);
+    return pushTemplateOnce(
+      supabase,
+      userId,
+      { ...template, id: newId, serverUpdatedAt: null },
+      `${label} (re-mint retry)`,
+    );
+  }
+  await markMealTemplateSynced(template.id, outcome.serverUpdatedAt);
+  return "synced";
 }
 
 /** @internal Exported for unit tests. Not part of the stable sync API. */
@@ -340,50 +468,61 @@ export async function pushRecipes(
   result: SyncResult,
 ) {
   const recipes = await listRecipes();
-  if (recipes.length === 0) return;
-  const rows = recipes.map((r) => recipeToRow(userId, r));
-  const { error } = await withTimeout("push recipes", (signal) =>
-    supabase.from("recipes").upsert(rows).abortSignal(signal),
-  );
-  if (!error) {
-    result.pushed.recipes = rows.length;
-    return;
-  }
-
-  // Same UUID-collision recovery as custom_foods / meal_templates: per-row
-  // retry with re-minted local UUID on 42501.
-  const code = (error as { code?: string }).code;
-  if (code !== "42501") throw asError(error, "push recipes");
-
-  let pushed = 0;
   for (const recipe of recipes) {
-    const row = recipeToRow(userId, recipe);
-    const single = await withTimeout("push recipes (per-row)", (signal) =>
-      supabase.from("recipes").upsert(row).abortSignal(signal),
+    if (!isDirty(recipe)) continue;
+    const outcome = await pushRecipeOnce(
+      supabase,
+      userId,
+      recipe,
+      "push recipe",
     );
-    if (!single.error) {
-      pushed++;
+    if (outcome === "conflict") {
+      result.conflicts++;
       continue;
     }
-    if ((single.error as { code?: string }).code !== "42501") {
-      throw asError(single.error, "push recipes (per-row)");
-    }
-    const newId = crypto.randomUUID();
-    await upsertRecipe({ ...recipe, id: newId });
-    await deleteRecipe(recipe.id);
-    const retry = await withTimeout("push recipes (re-mint retry)", (signal) =>
-      supabase
-        .from("recipes")
-        .upsert(recipeToRow(userId, { ...recipe, id: newId }))
-        .abortSignal(signal),
-    );
-    if (retry.error) throw asError(retry.error, "push recipes (re-mint retry)");
-    pushed++;
+    if (outcome === "synced") result.pushed.recipes++;
   }
-  result.pushed.recipes = pushed;
+}
+
+async function pushRecipeOnce(
+  supabase: SupabaseClient,
+  userId: string,
+  recipe: Recipe,
+  label: string,
+): Promise<"synced" | "conflict"> {
+  const row = recipeToRow(userId, recipe);
+  const outcome = await pushRow(
+    supabase,
+    "recipes",
+    row,
+    { id: recipe.id },
+    (recipe as Recipe & { serverUpdatedAt?: string | null }).serverUpdatedAt,
+    label,
+  );
+  if (outcome.status === "conflict") return "conflict";
+  if (outcome.status === "uuid-collision") {
+    const newId = crypto.randomUUID();
+    await upsertRecipe({
+      ...recipe,
+      id: newId,
+      serverUpdatedAt: null,
+    } as Recipe & { serverUpdatedAt: null });
+    await deleteRecipe(recipe.id);
+    return pushRecipeOnce(
+      supabase,
+      userId,
+      { ...recipe, id: newId },
+      `${label} (re-mint retry)`,
+    );
+  }
+  await markRecipeSynced(recipe.id, outcome.serverUpdatedAt);
+  return "synced";
 }
 
 // ─── Pull ──────────────────────────────────────────────────────────────────
+// Every pull calls applyServerX so the local row reads as clean
+// (localUpdatedAt === serverUpdatedAt) — otherwise the very next sync
+// would see every pulled row as dirty and try to push it back.
 
 async function pullProfile(
   supabase: SupabaseClient,
@@ -400,9 +539,16 @@ async function pullProfile(
   );
   if (error) throw asError(error, "pull profile");
   if (!data) return;
-  const profile = profileFromRow(data as ProfileRow);
-  await saveProfile(profile);
-  result.pulled.profile = 1;
+  const row = data as ProfileRow;
+  const profile = profileFromRow(row);
+  // Only overwrite locally if the server is strictly newer than what
+  // we last saw. Otherwise leave the local copy alone — it may be a
+  // dirty local edit that hasn't been pushed yet.
+  const local = await getProfileRecord();
+  if (shouldApplyServer(local?.serverUpdatedAt, row.updated_at)) {
+    await applyServerProfile(profile, row.updated_at);
+    result.pulled.profile = 1;
+  }
 }
 
 async function pullDailyLogs(
@@ -419,9 +565,14 @@ async function pullDailyLogs(
   );
   if (error) throw asError(error, "pull daily logs");
   if (!data) return;
+  const locals = new Map(
+    (await listDailyLogs()).map((l: DailyLog) => [l.date, l]),
+  );
   for (const row of data as DailyLogRow[]) {
+    const localRow = locals.get(row.date);
+    if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
     const log = dailyLogFromRow(row);
-    await saveDailyLog(log.date, log.meals);
+    await applyServerDailyLog(log.date, log.meals, row.updated_at);
     result.pulled.dailyLogs++;
   }
 }
@@ -440,9 +591,14 @@ async function pullWeightEntries(
   );
   if (error) throw asError(error, "pull weight history");
   if (!data) return;
+  const locals = new Map(
+    (await listWeightEntries()).map((e: WeightEntry) => [e.date, e]),
+  );
   for (const row of data as WeightRow[]) {
+    const localRow = locals.get(row.date);
+    if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
     const entry = weightFromRow(row);
-    await saveWeightEntry(entry.date, entry.kg);
+    await applyServerWeightEntry(entry.date, entry.kg, row.updated_at);
     result.pulled.weightEntries++;
   }
 }
@@ -463,8 +619,13 @@ async function pullCustomFoods(
   );
   if (error) throw asError(error, "pull custom foods");
   if (!data) return;
+  const locals = new Map(
+    (await listCustomFoods()).map((f: CustomFood) => [f.id, f]),
+  );
   for (const row of data as CustomFoodRow[]) {
-    await upsertCustomFood(customFoodFromRow(row));
+    const localRow = locals.get(row.id);
+    if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
+    await applyServerCustomFood(customFoodFromRow(row), row.updated_at);
     result.pulled.customFoods++;
   }
 }
@@ -483,8 +644,13 @@ async function pullMealTemplates(
   );
   if (error) throw asError(error, "pull meal templates");
   if (!data) return;
+  const locals = new Map(
+    (await listMealTemplates()).map((t: MealTemplate) => [t.id, t]),
+  );
   for (const row of data as MealTemplateRow[]) {
-    await upsertMealTemplate(mealTemplateFromRow(row));
+    const localRow = locals.get(row.id);
+    if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
+    await applyServerMealTemplate(mealTemplateFromRow(row), row.updated_at);
     result.pulled.mealTemplates++;
   }
 }
@@ -505,8 +671,39 @@ async function pullRecipes(
   );
   if (error) throw asError(error, "pull recipes");
   if (!data) return;
+  const locals = new Map(
+    (await listRecipes()).map(
+      (r: Recipe & { serverUpdatedAt?: string | null }) => [r.id, r],
+    ),
+  );
   for (const row of data as RecipeRow[]) {
-    await upsertRecipe(recipeFromRow(row));
+    const localRow = locals.get(row.id);
+    if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
+    await applyServerRecipe(recipeFromRow(row), row.updated_at);
     result.pulled.recipes++;
   }
+}
+
+/** Should we overwrite local with this server row? Yes if we've never
+ *  pulled it before, OR if its server timestamp is newer than the one
+ *  we last saw. Avoids the bug where pull-after-push unconditionally
+ *  clobbers a local edit made in the small window between our push and
+ *  our pull. */
+function shouldApplyServer(
+  localServerUpdatedAt: string | null | undefined,
+  serverUpdatedAt: string,
+): boolean {
+  if (!localServerUpdatedAt) return true;
+  return Date.parse(serverUpdatedAt) > Date.parse(localServerUpdatedAt);
+}
+
+/** Strip the Versioned mixin from a saved row so it round-trips through
+ *  the mappers (which expect clean PersonalInfo / DailyLog / etc). */
+function stripVersioned<T extends object>(
+  row: T & { localUpdatedAt?: string; serverUpdatedAt?: string | null },
+): T {
+  const { localUpdatedAt: _l, serverUpdatedAt: _s, ...rest } = row;
+  void _l;
+  void _s;
+  return rest as T;
 }
