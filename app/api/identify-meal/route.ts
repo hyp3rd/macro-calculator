@@ -14,23 +14,30 @@ const MODEL: Anthropic.Model = "claude-haiku-4-5";
 const MAX_TOKENS = 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Anthropic's documented limit.
 
-/** Macros derived from the catalog for each AI-returned food. The
- *  client uses per-100g + portionGrams so the user can edit grams in
- *  the review dialog and macros recompute locally. */
+/** A single food identified in the photo. The client uses per-100g +
+ *  portionGrams so the user can edit grams in the review dialog and
+ *  macros recompute locally.
+ *
+ *  When `estimated` is true, the macros came from the model rather
+ *  than the catalog — surface that to the user with a clear badge so
+ *  they can correct or skip. We allow this exception to the usual
+ *  "catalog is the only source of macros" rule because the user is
+ *  identifying what's already on their plate; refusing to add a
+ *  tomato just because tomato isn't pre-seeded would be worse than
+ *  giving them an editable estimate. Estimated foods can be promoted
+ *  to custom foods on confirm so the next photo of the same food
+ *  resolves to the catalog instead. */
 export type ResolvedMealPhotoFood = {
   name: string;
   per100g: { protein: number; carbs: number; fat: number; calories: number };
   portionGrams: number;
   confidence: "high" | "medium" | "low";
+  /** True when macros came from the model, false when they came from
+   *  the seed/custom catalog. */
+  estimated: boolean;
 };
 
-export type ResolvedMealPhoto = {
-  foods: ResolvedMealPhotoFood[];
-  /** Names the AI returned that didn't resolve against the catalog —
-   *  shown to the user so they know what was skipped and can add
-   *  manually if it matters. */
-  unmatched: string[];
-};
+export type ResolvedMealPhoto = { foods: ResolvedMealPhotoFood[] };
 
 type RequestBody = {
   /** Base64 (no data: prefix) JPEG/PNG. Capped server-side. */
@@ -48,6 +55,14 @@ type AiSubmittedFood = {
   name: string;
   portionGrams: number;
   confidence?: "high" | "medium" | "low";
+  /** Per-100g macros the AI estimates. Required for every food so we
+   *  can fall back to these for items not in the catalog. */
+  macrosPer100g?: {
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    calories?: number;
+  };
 };
 
 /** Identify foods in a meal photo via Claude Haiku 4.5 vision. The model
@@ -128,15 +143,17 @@ export async function POST(req: Request): Promise<NextResponse> {
     )
     .join("\n");
 
-  const systemPrompt = `You are identifying foods in a photograph the user took of food they're about to eat. For each visible item, estimate the portion in grams.
+  const systemPrompt = `You are identifying foods in a photograph the user took of food they're about to eat. For each visible item, estimate the portion in grams AND the per-100g macros.
 
 Rules:
-- When a visible food matches one in the seed catalog, USE THE EXACT CATALOG NAME so the server can resolve macros. The catalog is the source of macro truth.
-- For foods not in the catalog, return a natural short name (we'll try to match heuristically).
+- When a visible food matches one in the seed catalog, USE THE EXACT CATALOG NAME (the server will use the catalog's macros, not your estimates, for matched names).
+- For foods not in the catalog, give a short natural name (e.g. "tomato", "white rice", "grilled salmon"). Your macro estimates WILL be used for these — be honest and reasonable.
+- Always include per-100g macros for every food, even ones in the catalog (we'll prefer catalog values when they match).
 - Estimate grams from visual cues — typical portion is 50–300 g per item; oils/sauces are smaller (5–30 g).
+- Typical macro ranges per 100 g: protein 0–30 g, carbs 0–80 g, fat 0–100 g, calories 0–900 kcal. A pure fat is mostly fat; a pure carb is mostly carbs; meats are mostly protein + fat.
 - Confidence: "high" if you're sure, "medium" if visually similar to alternatives, "low" if it's a guess.
-- Skip items you can't reasonably identify or estimate grams for.
-- Return 1–8 foods total. Don't pad the list.
+- Skip items you can't reasonably identify or estimate.
+- Return 1–8 foods total. Don't pad the list — fewer high-confidence items beats many low-confidence ones.
 
 Seed catalog (per 100g):
 ${catalogLines}
@@ -146,7 +163,7 @@ Submit your answer via submit_meal_foods and stop.`;
   const tool: Anthropic.Tool = {
     name: "submit_meal_foods",
     description:
-      "Final output: the foods you identified with portion grams. Required.",
+      "Final output: the foods you identified with portion grams + per-100g macros. Required.",
     input_schema: {
       type: "object",
       properties: {
@@ -163,11 +180,23 @@ Submit your answer via submit_meal_foods and stop.`;
               },
               portionGrams: {
                 type: "number",
-                description: "Estimated portion in grams.",
+                description: "Estimated portion in grams (5–500).",
               },
               confidence: { type: "string", enum: ["high", "medium", "low"] },
+              macrosPer100g: {
+                type: "object",
+                description:
+                  "Per-100g macros. Used directly when the food isn't in the seed catalog; otherwise the catalog values win.",
+                properties: {
+                  protein: { type: "number" },
+                  carbs: { type: "number" },
+                  fat: { type: "number" },
+                  calories: { type: "number" },
+                },
+                required: ["protein", "carbs", "fat", "calories"],
+              },
             },
-            required: ["name", "portionGrams"],
+            required: ["name", "portionGrams", "macrosPer100g"],
           },
         },
       },
@@ -251,9 +280,15 @@ Submit your answer via submit_meal_foods and stop.`;
   // 7. Resolve names against the catalog. Same matcher the meal-plan
   //    and recipe routes use — normalized exact match + word-boundary
   //    substring fallback (handles "rolled oats" → "Oats", etc).
+  //
+  //    Items that resolve to the catalog use catalog macros (truth).
+  //    Items that don't resolve fall back to the AI's per-100g
+  //    estimates so the user can still log them — the review dialog
+  //    surfaces these with an "AI estimate" badge and (optionally)
+  //    promotes them to custom foods on confirm so the next photo of
+  //    the same food matches the catalog instead.
   const byNorm = buildNormIndex(catalog);
   const resolved: ResolvedMealPhotoFood[] = [];
-  const unmatched: string[] = [];
   for (const item of aiFoods) {
     if (
       !item ||
@@ -263,24 +298,35 @@ Submit your answer via submit_meal_foods and stop.`;
       continue;
     }
     const food = matchPick(item.name, catalog, byNorm);
-    if (!food) {
-      unmatched.push(item.name);
+    if (food) {
+      resolved.push({
+        name: food.name,
+        per100g: {
+          protein: food.protein,
+          carbs: food.carbs,
+          fat: food.fat,
+          calories: food.calories,
+        },
+        portionGrams: clampGrams(item.portionGrams),
+        confidence: normalizeConfidence(item.confidence),
+        estimated: false,
+      });
       continue;
     }
+    // Unmatched — use AI macros. Skip the item if the model didn't
+    // supply usable macros (we'd rather drop than show all-zeros).
+    const aiMacros = sanitizeMacros(item.macrosPer100g);
+    if (!aiMacros) continue;
     resolved.push({
-      name: food.name,
-      per100g: {
-        protein: food.protein,
-        carbs: food.carbs,
-        fat: food.fat,
-        calories: food.calories,
-      },
+      name: cleanName(item.name),
+      per100g: aiMacros,
       portionGrams: clampGrams(item.portionGrams),
       confidence: normalizeConfidence(item.confidence),
+      estimated: true,
     });
   }
 
-  const out: ResolvedMealPhoto = { foods: resolved, unmatched };
+  const out: ResolvedMealPhoto = { foods: resolved };
   return NextResponse.json(out);
 }
 
@@ -294,4 +340,38 @@ function clampGrams(g: number): number {
 
 function normalizeConfidence(c: unknown): "high" | "medium" | "low" {
   return c === "high" || c === "medium" || c === "low" ? c : "medium";
+}
+
+/** Tidy up an AI-returned food name into something we'd be happy
+ *  saving as a custom food. Capitalizes the first letter, trims, drops
+ *  trailing punctuation. Doesn't reshape the user-facing string
+ *  beyond cosmetics — we want the model's noun, not our reinterpretation. */
+function cleanName(raw: string): string {
+  const trimmed = raw.trim().replace(/[.,;:]+$/, "");
+  if (!trimmed) return raw;
+  return trimmed[0].toUpperCase() + trimmed.slice(1);
+}
+
+type AiMacros = NonNullable<AiSubmittedFood["macrosPer100g"]>;
+
+/** Validate the AI's per-100g macros. Returns the cleaned shape or
+ *  `null` if any required field is missing / non-finite / negative.
+ *  All-zero is allowed (water, plain tea) — the user can always edit. */
+function sanitizeMacros(
+  m: AiMacros | undefined,
+): { protein: number; carbs: number; fat: number; calories: number } | null {
+  if (!m) return null;
+  const isOk = (v: unknown): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0;
+  if (!isOk(m.protein) || !isOk(m.carbs) || !isOk(m.fat) || !isOk(m.calories)) {
+    return null;
+  }
+  // Cap at sane upper bounds so a hallucinated 9999 doesn't poison the
+  // sums in the review dialog.
+  return {
+    protein: Math.min(m.protein, 100),
+    carbs: Math.min(m.carbs, 100),
+    fat: Math.min(m.fat, 100),
+    calories: Math.min(m.calories, 900),
+  };
 }
