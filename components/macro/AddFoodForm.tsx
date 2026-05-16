@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Loader2, Plus, Save, Search } from "lucide-react";
+import { Loader2, Plus, Save, ScanLine, Search } from "lucide-react";
 import { Food, FoodItem, Meal } from "../../components/macro/types";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -35,6 +35,7 @@ interface AddFoodFormProps {
   addFood: () => void;
   onSaveOffToCustom: (food: Food) => void;
   onOpenCustomFoodForm: () => void;
+  onOpenCamera: () => void;
 }
 
 const SOURCE_LABEL: Record<NonNullable<Food["source"]>, string> = {
@@ -66,6 +67,7 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
   addFood,
   onSaveOffToCustom,
   onOpenCustomFoodForm,
+  onOpenCamera,
 }) => {
   return (
     <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
@@ -76,16 +78,29 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
             Search built-in, your saved foods, and Open Food Facts.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onOpenCustomFoodForm}
-          className="h-8 gap-1.5"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Custom food
-        </Button>
+        <div className="flex shrink-0 gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onOpenCamera}
+            className="h-8 gap-1.5"
+            title="Scan a product barcode"
+          >
+            <ScanLine className="h-3.5 w-3.5" />
+            Scan
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onOpenCustomFoodForm}
+            className="h-8 gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Custom food
+          </Button>
+        </div>
       </header>
 
       <div className="space-y-4 px-5 py-4">

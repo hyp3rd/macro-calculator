@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ResolvedMealPhoto } from "./app/api/identify-meal/route";
 import { ApplyRecipeDialog } from "./components/macro/ApplyRecipeDialog";
 import { ApplyTemplateDialog } from "./components/macro/ApplyTemplateDialog";
+import { CameraSheet } from "./components/macro/CameraSheet";
 import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
+import { MealPhotoReviewDialog } from "./components/macro/MealPhotoReviewDialog";
 import MealPlanner from "./components/macro/MealPlanner";
 import { MyFoodsView } from "./components/macro/MyFoodsView";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
@@ -29,6 +32,7 @@ import { useDailyLog } from "./hooks/use-daily-log";
 import { useFoodSearch } from "./hooks/use-food-search";
 import { useProfile } from "./hooks/use-profile";
 import { useToday } from "./hooks/use-today";
+import { useUser } from "./hooks/use-user";
 import { requestAiMealPlan } from "./lib/ai-plan";
 import {
   addCustomFood,
@@ -130,6 +134,18 @@ const MacroCalculator = () => {
   // Bump to force the search hook to re-query custom foods after a save.
   const [customFoodsRev, setCustomFoodsRev] = useState(0);
   const [customFoodOpen, setCustomFoodOpen] = useState(false);
+  // Camera/barcode entry-point dialog. Opens from AddFoodForm's
+  // "Camera" button. Barcode path: resolved Food flows back through
+  // `handleFoodSelect` like a typed-search pick. Photo path: AI
+  // returns a multi-food list → `MealPhotoReviewDialog` opens for
+  // review + bulk-add.
+  const [cameraSheetOpen, setCameraSheetOpen] = useState(false);
+  const [mealPhotoResult, setMealPhotoResult] =
+    useState<ResolvedMealPhoto | null>(null);
+  // AI route is auth-gated; surface the Photo tab only when signed in.
+  // The Anthropic env gate runs server-side — clicking with a stale
+  // session surfaces a clear 503 error in the sheet's error state.
+  const { user } = useUser();
   // Meal templates: which dialog is open and for which meal. `null` =
   // no dialog. The dialogs themselves read templates from IDB on open.
   const [templateDialog, setTemplateDialog] = useState<
@@ -269,6 +285,21 @@ const MacroCalculator = () => {
   };
 
   // Append a template's foods to the target meal. Each food gets a fresh
+  /** Append a list of FoodItems to a meal slot. Used by the
+   *  MealPhotoReviewDialog after the user confirms the AI-identified
+   *  foods. The FoodItems already have proper macros (the dialog
+   *  scaled per-100g × user-adjusted grams), so we only need to
+   *  re-mint ids to avoid collisions with other meal foods. */
+  const handleBulkAddToMeal = (targetId: number, foods: FoodItem[]) => {
+    let nextId = Date.now();
+    const cloned = foods.map((f) => ({ ...f, id: nextId++ }));
+    setMeals(
+      meals.map((m) =>
+        m.id === targetId ? { ...m, foods: [...m.foods, ...cloned] } : m,
+      ),
+    );
+  };
+
   // local id so subsequent edits don't collide with the template's saved
   // foods or other meals' foods.
   const handleApplyTemplate = (template: MealTemplate) => {
@@ -784,6 +815,7 @@ const MacroCalculator = () => {
           generateMealPlan={generateMealPlan}
           onSaveOffToCustom={handleSaveOffToCustom}
           onOpenCustomFoodForm={() => setCustomFoodOpen(true)}
+          onOpenCamera={() => setCameraSheetOpen(true)}
           onSaveAsTemplate={(mealId) =>
             setTemplateDialog({ kind: "save", mealId })
           }
@@ -805,6 +837,28 @@ const MacroCalculator = () => {
       {view === "recipes" && <RecipesView profile={personalInfo} />}
 
       {view === "settings" && <SettingsView />}
+
+      <CameraSheet
+        open={cameraSheetOpen}
+        onOpenChange={setCameraSheetOpen}
+        aiAvailable={!!user}
+        dietPreference={personalInfo.dietPreference}
+        onFoodPicked={handleFoodSelect}
+        onMealPhotoResolved={(result) => setMealPhotoResult(result)}
+      />
+
+      <MealPhotoReviewDialog
+        open={mealPhotoResult !== null}
+        onOpenChange={(o) => {
+          if (!o) setMealPhotoResult(null);
+        }}
+        result={mealPhotoResult}
+        meals={meals}
+        onConfirm={(mealId, foods) => {
+          handleBulkAddToMeal(mealId, foods);
+          setMealPhotoResult(null);
+        }}
+      />
 
       <CustomFoodForm
         open={customFoodOpen}

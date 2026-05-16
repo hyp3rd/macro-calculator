@@ -1,6 +1,6 @@
 import type { DietPreference, Food, Meal } from "@/components/macro/types";
-import { foodDatabase } from "@/data/food-database";
 import { markLastBlockForCache } from "@/lib/ai/anthropic-helpers";
+import { buildResolutionCatalog, buildSeedCatalog } from "@/lib/ai/catalog";
 import { getAnthropicConfig } from "@/lib/ai/env";
 import { searchOpenFoodFactsServer } from "@/lib/ai/off-search";
 import {
@@ -8,7 +8,6 @@ import {
   type AiPlanShape,
   unmatchedPickNames,
 } from "@/lib/ai/plan";
-import { filterByDiet } from "@/lib/diet";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
@@ -23,25 +22,6 @@ const MAX_ITERATIONS = 5;
  * payload + maybe a sentence of preamble); 1024 is plenty and keeps
  * each round-trip under ~2 s on Haiku 4.5. */
 const MAX_TOKENS_PER_ITERATION = 1024;
-
-/** Build the catalog used to resolve AI plan picks: seed (built-in + custom,
- * already diet-filtered) plus every OFF result the AI has pulled this run,
- * minus anything containing an allergen substring. Pure so the in-loop
- * validation and the post-loop resolution can share it. */
-function buildResolutionCatalog(
-  seed: Food[],
-  offFoods: Food[],
-  allergies: string[],
-): Food[] {
-  let c = [...seed, ...offFoods];
-  if (allergies.length > 0) {
-    c = c.filter((f) => {
-      const name = f.name.toLowerCase();
-      return !allergies.some((a) => a.length > 0 && name.includes(a));
-    });
-  }
-  return c;
-}
 
 type RequestBody = {
   targets: { protein: number; carbs: number; fat: number; calories: number };
@@ -125,11 +105,8 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   // 4. Pre-build the diet-filtered seed catalog. The AI sees this in the
   //    system prompt + can expand it via search_open_food_facts.
-  const seedCatalog = filterByDiet(
-    [...foodDatabase, ...(body.customFoods ?? [])],
-    body.dietPreference,
-  );
-  if (seedCatalog.length === 0) {
+  const seedCatalog = buildSeedCatalog(body.dietPreference, body.customFoods);
+  if (!seedCatalog) {
     return NextResponse.json(
       {
         error: `No foods match the ${body.dietPreference} diet preference. Add some custom foods classified as compatible.`,

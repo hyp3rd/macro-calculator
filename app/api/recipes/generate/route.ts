@@ -1,6 +1,6 @@
 import type { DietPreference, Food, Recipe } from "@/components/macro/types";
-import { foodDatabase } from "@/data/food-database";
 import { markLastBlockForCache } from "@/lib/ai/anthropic-helpers";
+import { buildResolutionCatalog, buildSeedCatalog } from "@/lib/ai/catalog";
 import { getAnthropicConfig } from "@/lib/ai/env";
 import { searchOpenFoodFactsServer } from "@/lib/ai/off-search";
 import {
@@ -8,7 +8,6 @@ import {
   type AiRecipeSubmit,
   unmatchedIngredientNames,
 } from "@/lib/ai/recipe";
-import { filterByDiet } from "@/lib/diet";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
@@ -21,21 +20,6 @@ const MODEL: Anthropic.Model = "claude-haiku-4-5";
 const MAX_ITERATIONS = 4;
 const MAX_TOKENS_PER_ITERATION = 1024;
 const HINT_MAX_LEN = 200;
-
-function buildResolutionCatalog(
-  seed: Food[],
-  offFoods: Food[],
-  allergies: string[],
-): Food[] {
-  let c = [...seed, ...offFoods];
-  if (allergies.length > 0) {
-    c = c.filter((f) => {
-      const name = f.name.toLowerCase();
-      return !allergies.some((a) => a.length > 0 && name.includes(a));
-    });
-  }
-  return c;
-}
 
 type RequestBody = {
   dietPreference: DietPreference;
@@ -97,11 +81,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   // 4. Pre-build the diet-filtered seed catalog.
-  const seedCatalog = filterByDiet(
-    [...foodDatabase, ...(body.customFoods ?? [])],
-    body.dietPreference,
-  );
-  if (seedCatalog.length === 0) {
+  const seedCatalog = buildSeedCatalog(body.dietPreference, body.customFoods);
+  if (!seedCatalog) {
     return NextResponse.json(
       {
         error: `No foods match the ${body.dietPreference} diet preference. Add some custom foods classified as compatible.`,

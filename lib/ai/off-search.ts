@@ -14,7 +14,10 @@ const USER_AGENT =
   "macro-calculator/0.1 (https://github.com/hyp3rd/macro-calculator)";
 const OFF_TIMEOUT_MS = 5_000;
 
-type OFFHit = {
+/** Shape we extract from an Open Food Facts product blob. Exported so
+ *  callers outside the search-a-licious path (the barcode route, mainly)
+ *  can hand the inner product object straight to `hitToFood`. */
+export type OFFHit = {
   code?: string;
   product_name?: string;
   brands?: string | string[];
@@ -37,7 +40,10 @@ function firstBrand(brands: string | string[] | undefined): string | undefined {
   return brands.split(",")[0]?.trim() || undefined;
 }
 
-function hitToFood(h: OFFHit): Food | null {
+/** Map an Open Food Facts product (either a search hit or a single-product
+ *  response from /api/v0/product) to the local `Food` shape. Exported so
+ *  the barcode-lookup route reuses the exact same normalization. */
+export function hitToFood(h: OFFHit): Food | null {
   const name = (h.product_name ?? "").trim();
   if (!name) return null;
   const n = h.nutriments ?? {};
