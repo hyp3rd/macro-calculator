@@ -6,7 +6,12 @@ export type SyncStatus =
   | { state: "idle" }
   | { state: "syncing" }
   | { state: "synced"; at: number }
-  | { state: "error"; message: string };
+  | { state: "error"; message: string }
+  /** A push was rejected because the server's `updated_at` had moved
+   *  on since our last pull — another device edited the same row(s)
+   *  first. The local rows stay dirty; the UI surfaces this so the
+   *  user can re-attempt the sync (which will pull fresh first). */
+  | { state: "conflict"; count: number };
 
 /** Combined view: the lifecycle state plus a "writes since last successful
  * sync" counter. Pending is independent of state — a user can have pending
@@ -33,6 +38,17 @@ export function setSyncing(): void {
  * exactly the moment the pending writes get reconciled with the server. */
 export function setSynced(): void {
   setSnapshot({ status: { state: "synced", at: Date.now() }, pending: 0 });
+}
+
+/** Marks a sync that completed *successfully at the protocol level*
+ *  but had one or more push rejections (peer device beat us to the
+ *  punch). The pending counter is preserved — those rows are still
+ *  dirty and need a retry. */
+export function setSyncConflict(count: number): void {
+  setSnapshot({
+    status: { state: "conflict", count },
+    pending: snapshot.pending,
+  });
 }
 
 export function setSyncError(err: unknown): void {

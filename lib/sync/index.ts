@@ -33,6 +33,7 @@ import {
 } from "@/lib/db";
 import {
   getSyncStatus,
+  setSyncConflict,
   setSyncError,
   setSynced,
   setSyncing,
@@ -138,7 +139,15 @@ export async function triggerSync(
   setSyncing();
   try {
     const result = await runInitialSync(supabase, userId);
-    setSynced();
+    // A successful sync can still leave dirty rows behind when the
+    // server's version moved on between our pull and our push — those
+    // are real conflicts the user needs to know about. Surface them on
+    // the status pill instead of silently flipping to "synced".
+    if (result.conflicts > 0) {
+      setSyncConflict(result.conflicts);
+    } else {
+      setSynced();
+    }
     return result;
   } catch (err) {
     setSyncError(err);

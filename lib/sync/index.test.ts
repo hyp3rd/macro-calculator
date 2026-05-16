@@ -1,7 +1,13 @@
 import * as db from "@/lib/db";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetSyncStatusForTests, getSyncStatus } from "@/lib/sync-status";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { pushCustomFoods, pushMealTemplates, type SyncResult } from "./index";
+import {
+  pushCustomFoods,
+  pushMealTemplates,
+  triggerSync,
+  type SyncResult,
+} from "./index";
 
 // Mock the IDB-backed db module so the sync code is exercised in
 // isolation. Each test seeds the mocks with the rows it wants `list*`
@@ -91,6 +97,25 @@ function makeSupabase(opts: {
 
   const sb = {
     from: () => ({
+      // Pull chain. The sync engine does:
+      //   .select(cols).eq("user_id", id).abortSignal(sig)
+      // and optionally `.maybeSingle()` on the profile pull. We
+      // default to "no rows" so a pull-only test (triggerSync with
+      // empty stores) is a no-op rather than a hang.
+      select: () => {
+        const builder = {
+          eq: () => builder,
+          abortSignal: () => {
+            const empty = Promise.resolve({ data: [], error: null });
+            // The builder is itself thenable for `await q.eq(...).abortSignal(sig)` -
+            // returns [] which the engine iterates and writes nothing.
+            return Object.assign(empty, {
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            });
+          },
+        };
+        return builder;
+      },
       upsert: (row: unknown) => {
         upsertCalls.push(row);
         const r = opts.upsert
@@ -355,5 +380,68 @@ describe("pushMealTemplates — same per-row semantics as customFoods", () => {
     expect(result.pushed.mealTemplates).toBe(1);
     expect(vi.mocked(db.upsertMealTemplate)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(db.deleteMealTemplate)).toHaveBeenCalledWith("collides");
+  });
+});
+
+describe("triggerSync — conflict status flip", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetSyncStatusForTests();
+  });
+  afterEach(() => {
+    __resetSyncStatusForTests();
+  });
+
+  it("flips status to 'conflict' when runInitialSync returns conflicts > 0", async () => {
+    // Seed one custom_food whose push will be rejected (stale base).
+    // Everything else is empty so the rest of the sync is a no-op.
+    vi.mocked(db.listCustomFoods).mockResolvedValue([
+      {
+        id: "a",
+        name: "Tofu",
+        protein: 8,
+        carbs: 2,
+        fat: 4,
+        calories: 76,
+        createdAt: 0,
+        localUpdatedAt: "2026-05-16T13:00:00Z",
+        serverUpdatedAt: "2026-05-16T12:00:00Z",
+      },
+    ]);
+    vi.mocked(db.listDailyLogs).mockResolvedValue([]);
+    vi.mocked(db.listWeightEntries).mockResolvedValue([]);
+    vi.mocked(db.listMealTemplates).mockResolvedValue([]);
+    vi.mocked(db.listRecipes).mockResolvedValue([]);
+    vi.mocked(db.getProfileRecord).mockResolvedValue(null);
+
+    const { sb } = makeSupabase({
+      // Stale base → server returns 0 rows updated → engine logs a
+      // conflict.
+      update: () => ({ data: null, error: null }),
+    });
+
+    const result = await triggerSync(sb, USER_ID);
+    expect(result?.conflicts).toBe(1);
+
+    const status = getSyncStatus();
+    expect(status.state).toBe("conflict");
+    if (status.state === "conflict") {
+      expect(status.count).toBe(1);
+    }
+  });
+
+  it("flips status to 'synced' when there are no conflicts", async () => {
+    vi.mocked(db.listCustomFoods).mockResolvedValue([]);
+    vi.mocked(db.listDailyLogs).mockResolvedValue([]);
+    vi.mocked(db.listWeightEntries).mockResolvedValue([]);
+    vi.mocked(db.listMealTemplates).mockResolvedValue([]);
+    vi.mocked(db.listRecipes).mockResolvedValue([]);
+    vi.mocked(db.getProfileRecord).mockResolvedValue(null);
+
+    const { sb } = makeSupabase({});
+
+    await triggerSync(sb, USER_ID);
+
+    expect(getSyncStatus().state).toBe("synced");
   });
 });

@@ -12,6 +12,7 @@ import { deleteMealTemplate, listMealTemplates } from "@/lib/db";
 import type { MealTemplate } from "@/lib/db";
 import { reportStorageError } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
+import { useDataRev } from "@/lib/sync/data-bus";
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 
@@ -46,8 +47,13 @@ export function ApplyTemplateDialog({
   // setState at the top of the load effect (react-hooks/set-state-in-effect).
   const loading = open && templates === null;
 
+  // Bumps when a peer device's template change arrives via realtime;
+  // re-runs the load effect so the dialog reflects the new list.
+  const templatesRev = useDataRev("mealTemplates");
+
   // Load fresh whenever the dialog opens. Reset the list on close so the
-  // next open starts in the loading state again.
+  // next open starts in the loading state again. Reload too when the
+  // realtime layer signals a peer change.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -68,7 +74,7 @@ export function ApplyTemplateDialog({
       // data that might be out of sync after a delete.
       setTemplates(null);
     };
-  }, [open]);
+  }, [open, templatesRev]);
 
   async function handleDelete(id: string) {
     setTemplates((prev) => (prev ? prev.filter((t) => t.id !== id) : prev));

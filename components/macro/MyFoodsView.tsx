@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { deleteCustomFood, listCustomFoods, type CustomFood } from "@/lib/db";
 import { reportStorageError } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
+import { useDataRev } from "@/lib/sync/data-bus";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { CustomFoodForm } from "./CustomFoodForm";
@@ -40,9 +41,14 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
     }
   }
 
-  // Initial load. The state update happens in the .then callback (after a
-  // microtask), so the react-hooks/set-state-in-effect rule is satisfied —
-  // we're not invoking setState synchronously inside the effect body.
+  // Bumps when a peer device's custom-food change arrives via realtime.
+  // Including it in the effect's dep array re-runs the load.
+  const customFoodsRev = useDataRev("customFoods");
+
+  // Initial load + reload on realtime arrival. The state update happens
+  // in the .then callback (after a microtask), so the
+  // react-hooks/set-state-in-effect rule is satisfied — we're not
+  // invoking setState synchronously inside the effect body.
   useEffect(() => {
     listCustomFoods()
       .then((rows) => setFoods(rows))
@@ -50,7 +56,7 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
         reportStorageError(err);
         setFoods([]);
       });
-  }, []);
+  }, [customFoodsRev]);
 
   const filtered = useMemo(() => {
     if (!foods) return null;

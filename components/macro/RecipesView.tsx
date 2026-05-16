@@ -12,6 +12,7 @@ import { addRecipe, deleteRecipe, listRecipes, upsertRecipe } from "@/lib/db";
 import { recipeDietCompatibility } from "@/lib/diet";
 import { reportStorageError } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
+import { useDataRev } from "@/lib/sync/data-bus";
 import { useEffect, useMemo, useState } from "react";
 import { ChefHat, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { GenerateRecipeDialog } from "./GenerateRecipeDialog";
@@ -41,7 +42,9 @@ export function RecipesView({ profile }: Props) {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [editing, setEditing] = useState<RecipeDraft | undefined>(undefined);
 
-  // Load on mount; reload after save/delete via setRecipes.
+  // Load on mount, after save/delete (via setRecipes), and when a
+  // peer device's recipe change arrives via realtime (recipesRev bump).
+  const recipesRev = useDataRev("recipes");
   useEffect(() => {
     let cancelled = false;
     listRecipes()
@@ -56,7 +59,7 @@ export function RecipesView({ profile }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [recipesRev]);
 
   const filtered = useMemo(() => {
     if (!recipes) return [];

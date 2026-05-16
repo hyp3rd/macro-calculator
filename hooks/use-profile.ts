@@ -5,6 +5,7 @@ import { getProfile, saveProfile, saveWeightEntry, todayKey } from "@/lib/db";
 import { notifyProfileChanged } from "@/lib/profile-bus";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
+import { useDataRev } from "@/lib/sync/data-bus";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const WRITE_DEBOUNCE_MS = 500;
@@ -33,8 +34,13 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
   // for today only when the weight value itself changes (so editing other
   // profile fields doesn't create phantom data points).
   const lastWeighedKg = useRef<number | null>(null);
+  // Bumped by the sync data-bus whenever the realtime layer writes a
+  // fresh profile into IDB (typically from another device). Including
+  // it in the load effect's dep array re-runs the load and pulls the
+  // new value into React state without needing a page refresh.
+  const profileRev = useDataRev("profile");
 
-  // Load once.
+  // Load on mount and on every realtime arrival.
   useEffect(() => {
     let cancelled = false;
     getProfile()
@@ -55,7 +61,7 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
     return () => {
       cancelled = true;
     };
-  }, [defaultProfile]);
+  }, [defaultProfile, profileRev]);
 
   // Debounced write. Gated on `isHydrated` so we don't immediately write
   // the synthetic default over a freshly-loaded profile.
