@@ -33,11 +33,21 @@ export async function startCamera(
     };
   }
   try {
+    // `advanced` is the only place the spec lets us request focus
+    // modes. Browsers that don't understand a constraint just skip it,
+    // so this stays graceful on desktops without focus motors. The
+    // bumped 1920×1080 resolution gives the BarcodeDetector enough
+    // pixels to resolve thin EAN bars from typical handheld distance —
+    // 1280×720 worked on MacBook webcams but was borderline on phones,
+    // where the camera frames the barcode much closer.
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: opts.facingMode ?? "environment",
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        advanced: [
+          { focusMode: "continuous" },
+        ] as unknown as MediaTrackConstraintSet[],
       },
       audio: false,
     });
