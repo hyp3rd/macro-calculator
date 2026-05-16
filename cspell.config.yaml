@@ -14,6 +14,7 @@ words:
   - aren
   - autoincrements
   - banchan
+  - barcodes
   - behaviour
   - Brûlée
   - carb
@@ -56,6 +57,7 @@ words:
   - pgcrypto
   - PGRST
   - PKCE
+  - playsinline
   - plpgsql
   - Postgrest
   - sparkline

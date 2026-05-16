@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApplyRecipeDialog } from "./components/macro/ApplyRecipeDialog";
 import { ApplyTemplateDialog } from "./components/macro/ApplyTemplateDialog";
+import { CameraSheet } from "./components/macro/CameraSheet";
 import { CustomFoodForm } from "./components/macro/CustomFoodForm";
 import MacroResults from "./components/macro/MacroResults";
 import MealPlanner from "./components/macro/MealPlanner";
@@ -130,6 +131,11 @@ const MacroCalculator = () => {
   // Bump to force the search hook to re-query custom foods after a save.
   const [customFoodsRev, setCustomFoodsRev] = useState(0);
   const [customFoodOpen, setCustomFoodOpen] = useState(false);
+  // Camera/barcode entry-point dialog. Opens from AddFoodForm's
+  // "Scan" button; on barcode resolve, the resulting Food flows back
+  // through `handleFoodSelect` so portion-pick + macros + Add-to-meal
+  // reuse the existing search-result UI.
+  const [cameraSheetOpen, setCameraSheetOpen] = useState(false);
   // Meal templates: which dialog is open and for which meal. `null` =
   // no dialog. The dialogs themselves read templates from IDB on open.
   const [templateDialog, setTemplateDialog] = useState<
@@ -784,6 +790,7 @@ const MacroCalculator = () => {
           generateMealPlan={generateMealPlan}
           onSaveOffToCustom={handleSaveOffToCustom}
           onOpenCustomFoodForm={() => setCustomFoodOpen(true)}
+          onOpenCamera={() => setCameraSheetOpen(true)}
           onSaveAsTemplate={(mealId) =>
             setTemplateDialog({ kind: "save", mealId })
           }
@@ -805,6 +812,12 @@ const MacroCalculator = () => {
       {view === "recipes" && <RecipesView profile={personalInfo} />}
 
       {view === "settings" && <SettingsView />}
+
+      <CameraSheet
+        open={cameraSheetOpen}
+        onOpenChange={setCameraSheetOpen}
+        onFoodPicked={handleFoodSelect}
+      />
 
       <CustomFoodForm
         open={customFoodOpen}

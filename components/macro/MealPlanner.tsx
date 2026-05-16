@@ -89,6 +89,7 @@ interface MealPlannerProps {
   setPortionSize: (size: number) => void;
   onSaveOffToCustom: (food: Food) => void;
   onOpenCustomFoodForm: () => void;
+  onOpenCamera: () => void;
   onSaveAsTemplate: (mealId: number) => void;
   onAddFromTemplate: (mealId: number) => void;
   onApplyRecipe: (mealId: number) => void;
@@ -134,6 +135,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   generateMealPlan,
   onSaveOffToCustom,
   onOpenCustomFoodForm,
+  onOpenCamera,
   onSaveAsTemplate,
   onAddFromTemplate,
   onApplyRecipe,
@@ -229,6 +231,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
         setPortionSize={setPortionSize}
         onSaveOffToCustom={onSaveOffToCustom}
         onOpenCustomFoodForm={onOpenCustomFoodForm}
+        onOpenCamera={onOpenCamera}
       />
 
       <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
