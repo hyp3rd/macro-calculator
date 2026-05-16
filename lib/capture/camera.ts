@@ -94,11 +94,22 @@ export async function startCamera(
 
 /** Capture the current video frame as a JPEG blob. Quality is
  *  reasonable for AI vision (1280×720 ~ 80 KB at 0.85) — small
- *  enough to upload quickly, sharp enough for food identification. */
+ *  enough to upload quickly, sharp enough for food identification.
+ *
+ *  Throws a readable error if the video hasn't received its first
+ *  frame yet (videoWidth/Height === 0). iOS Safari is slow to deliver
+ *  the first frame after `play()` resolves; calling captureFrame too
+ *  soon would otherwise produce a 0×0 canvas and a confusing
+ *  downstream failure. */
 export async function captureFrame(
   video: HTMLVideoElement,
   quality = 0.85,
 ): Promise<Blob> {
+  if (video.videoWidth === 0 || video.videoHeight === 0) {
+    throw new Error(
+      "Camera isn't ready yet. Wait a beat and tap the button again.",
+    );
+  }
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;

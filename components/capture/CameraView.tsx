@@ -159,6 +159,25 @@ export function CameraView({
     return stop;
   }, [mode, phase.kind, detectorAvailable]);
 
+  // Auto-switch off scan mode when the browser turns out to lack
+  // BarcodeDetector (iOS Safari is the common case — the API claims
+  // 16.4+ support but in practice it isn't shipped). Without this the
+  // user would land on the default "scan" mode with no way to switch
+  // since the Scan tab gets filtered out — leaving a live video
+  // preview with no working controls. Switch to photo if it's offered.
+  useEffect(() => {
+    if (
+      detectorAvailable === false &&
+      mode === "scan" &&
+      modes.includes("photo")
+    ) {
+      // Deferred to a microtask so the setState doesn't fire
+      // synchronously inside the effect body — react-hooks/set-state-
+      // in-effect is strict about that.
+      queueMicrotask(() => setMode("photo"));
+    }
+  }, [detectorAvailable, mode, modes]);
+
   async function handleCapturePhoto() {
     const video = videoRef.current;
     if (!video || photoBusy) return;

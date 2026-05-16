@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { useState } from "react";
-import { ArrowLeft, Mail } from "lucide-react";
+import { ArrowLeft, ClipboardPaste, Mail } from "lucide-react";
 import Link from "next/link";
 
 type Stage = { kind: "request" } | { kind: "verify"; email: string };
@@ -60,6 +60,30 @@ export default function LoginPage() {
       setError(e instanceof Error ? e.message : "Failed to send code.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Read the clipboard, extract digits, fill the field. Useful when
+   *  the user copied the code out of the email — saves the long-press
+   *  + Paste menu on mobile and a paste shortcut on desktop. Falls
+   *  back to a readable error if the browser denies clipboard access
+   *  (Firefox is restrictive without HTTPS + a user gesture). */
+  async function pasteCode() {
+    setError(null);
+    try {
+      const text = await navigator.clipboard.readText();
+      const digits = text.replace(/\D/g, "").slice(0, 10);
+      if (digits.length < 4) {
+        setError(
+          "Clipboard doesn't contain a recognizable code. Paste manually.",
+        );
+        return;
+      }
+      setCode(digits);
+    } catch {
+      setError(
+        "Couldn't read the clipboard. Long-press the field and paste manually.",
+      );
     }
   }
 
@@ -200,21 +224,33 @@ export default function LoginPage() {
                 >
                   Code
                 </Label>
-                <Input
-                  id="code"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoFocus
-                  autoComplete="one-time-code"
-                  maxLength={10}
-                  value={code}
-                  onChange={(e) =>
-                    setCode(e.target.value.replace(/\D/g, "").slice(0, 10))
-                  }
-                  placeholder="••••••••"
-                  className="font-mono tabular-nums text-center text-lg tracking-[0.3em]"
-                  disabled={busy}
-                />
+                <div className="relative">
+                  <Input
+                    id="code"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoFocus
+                    autoComplete="one-time-code"
+                    maxLength={10}
+                    value={code}
+                    onChange={(e) =>
+                      setCode(e.target.value.replace(/\D/g, "").slice(0, 10))
+                    }
+                    placeholder="••••••••"
+                    className="pr-11 font-mono tabular-nums text-center text-lg tracking-[0.3em]"
+                    disabled={busy}
+                  />
+                  <button
+                    type="button"
+                    onClick={pasteCode}
+                    disabled={busy}
+                    className="absolute right-1 top-1/2 inline-flex h-7 w-9 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    aria-label="Paste code from clipboard"
+                    title="Paste code from clipboard"
+                  >
+                    <ClipboardPaste className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
 
               {error && (
