@@ -260,7 +260,7 @@ export function SettingsView() {
               </div>
               <Link
                 href="/login"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-card px-3 text-sm font-medium hover:bg-accent"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/60 bg-card px-3 text-sm font-medium hover:bg-accent"
               >
                 <LogIn className="h-3.5 w-3.5" />
                 Sign in

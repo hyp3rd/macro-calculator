@@ -71,14 +71,17 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
 }) => {
   return (
     <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
-      <header className="flex items-start justify-between border-b border-border/60 px-5 py-3">
-        <div>
+      {/* Stack vertically on narrow screens (the description + two
+          buttons crammed onto one row looks awkward). From sm up,
+          restore the side-by-side layout. */}
+      <header className="flex flex-col gap-3 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold tracking-tight">Add Food</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Search built-in, your saved foods, and Open Food Facts.
           </p>
         </div>
-        <div className="flex shrink-0 gap-1.5">
+        <div className="flex shrink-0 flex-wrap gap-1.5 sm:flex-nowrap">
           <Button
             type="button"
             variant="outline"

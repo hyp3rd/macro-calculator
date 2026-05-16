@@ -29,12 +29,19 @@ type Props = {
   /** Profile's diet preference — sent to /api/identify-meal so the
    *  seed catalog the AI sees matches the user's universe. */
   dietPreference?: DietPreference;
+  /** Show a "Pair phone" footer link that lets the user delegate the
+   *  capture to their phone. Only visible on desktop — on mobile it
+   *  makes no sense (the camera *is* the phone). */
+  pairPhoneAvailable: boolean;
   /** Fires when a Food has been resolved (via OFF barcode lookup).
    *  The parent should pipe it through `handleFoodSelect`. */
   onFoodPicked: (food: Food) => void;
   /** Fires after the AI returns a resolved meal-photo identification.
    *  The parent owns opening MealPhotoReviewDialog with this result. */
   onMealPhotoResolved: (result: ResolvedMealPhoto) => void;
+  /** Called when the user clicks the "Pair phone" link. The parent
+   *  closes this sheet and opens PairPhoneDialog. */
+  onSwitchToPairPhone: () => void;
 };
 
 type Phase =
@@ -48,8 +55,10 @@ export function CameraSheet({
   onOpenChange,
   aiAvailable,
   dietPreference,
+  pairPhoneAvailable,
   onFoodPicked,
   onMealPhotoResolved,
+  onSwitchToPairPhone,
 }: Props) {
   return (
     <Dialog
@@ -61,12 +70,17 @@ export function CameraSheet({
           <CameraSheetBody
             aiAvailable={aiAvailable}
             dietPreference={dietPreference}
+            pairPhoneAvailable={pairPhoneAvailable}
             onPicked={(food) => {
               onFoodPicked(food);
               onOpenChange(false);
             }}
             onMealPhotoResolved={(result) => {
               onMealPhotoResolved(result);
+              onOpenChange(false);
+            }}
+            onSwitchToPairPhone={() => {
+              onSwitchToPairPhone();
               onOpenChange(false);
             }}
           />
@@ -79,13 +93,17 @@ export function CameraSheet({
 function CameraSheetBody({
   aiAvailable,
   dietPreference,
+  pairPhoneAvailable,
   onPicked,
   onMealPhotoResolved,
+  onSwitchToPairPhone,
 }: {
   aiAvailable: boolean;
   dietPreference?: DietPreference;
+  pairPhoneAvailable: boolean;
   onPicked: (food: Food) => void;
   onMealPhotoResolved: (result: ResolvedMealPhoto) => void;
+  onSwitchToPairPhone: () => void;
 }) {
   // `resetKey` cycles when the user clicks "Try again" so CameraView
   // remounts cleanly (re-acquires camera, restarts the detect loop).
@@ -178,13 +196,27 @@ function CameraSheetBody({
 
       <div className="py-2">
         {phase.kind === "capture" && (
-          <CameraView
-            key={resetKey}
-            modes={modes}
-            onBarcode={lookupBarcode}
-            onManualBarcode={lookupBarcode}
-            onPhoto={identifyMeal}
-          />
+          <>
+            <CameraView
+              key={resetKey}
+              modes={modes}
+              onBarcode={lookupBarcode}
+              onManualBarcode={lookupBarcode}
+              onPhoto={identifyMeal}
+            />
+            {pairPhoneAvailable && (
+              <p className="mt-3 text-center text-[11px] text-muted-foreground">
+                Better camera nearby?{" "}
+                <button
+                  type="button"
+                  onClick={onSwitchToPairPhone}
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  Pair your phone instead
+                </button>
+              </p>
+            )}
+          </>
         )}
 
         {phase.kind === "looking-up" && (

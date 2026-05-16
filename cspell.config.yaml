@@ -60,6 +60,7 @@ words:
   - playsinline
   - plpgsql
   - Postgrest
+  - qrcode
   - sparkline
   - summarise
   - supabase
