@@ -10,6 +10,7 @@ import MacroResults from "./components/macro/MacroResults";
 import { MealPhotoReviewDialog } from "./components/macro/MealPhotoReviewDialog";
 import MealPlanner from "./components/macro/MealPlanner";
 import { MyFoodsView } from "./components/macro/MyFoodsView";
+import { PairPhoneDialog } from "./components/macro/PairPhoneDialog";
 import PersonalInfoForm from "./components/macro/PersonalInfoForm";
 import { ProgressView } from "./components/macro/ProgressView";
 import { RecipesView } from "./components/macro/RecipesView";
@@ -30,6 +31,7 @@ import type { ViewKey } from "./components/shell/Sidebar";
 import { foodDatabase } from "./data/food-database";
 import { useDailyLog } from "./hooks/use-daily-log";
 import { useFoodSearch } from "./hooks/use-food-search";
+import { useIsMobile } from "./hooks/use-mobile";
 import { useProfile } from "./hooks/use-profile";
 import { useToday } from "./hooks/use-today";
 import { useUser } from "./hooks/use-user";
@@ -68,6 +70,28 @@ const DEFAULT_MEALS: Meal[] = [
   { id: 3, name: "Dinner", foods: [] },
   { id: 4, name: "Snacks", foods: [] },
 ];
+
+/** Convert a Blob to a bare base64 string (no data: prefix), as
+ *  /api/identify-meal expects. Shared by the in-sheet photo flow and
+ *  the paired-phone photo flow. FileReader is the most compatible
+ *  cross-browser path. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Failed to read blob."));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma === -1 ? result : result.slice(comma + 1));
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Failed to read blob."));
+    reader.readAsDataURL(blob);
+  });
+}
 
 const MacroCalculator = () => {
   // Persisted profile. Defaults are used until the IndexedDB hydration
@@ -142,6 +166,13 @@ const MacroCalculator = () => {
   const [cameraSheetOpen, setCameraSheetOpen] = useState(false);
   const [mealPhotoResult, setMealPhotoResult] =
     useState<ResolvedMealPhoto | null>(null);
+  // Phone pairing flow. Only offered on desktop (mobile has the camera
+  // right there). Opens from a footer link inside CameraSheet. Errors
+  // during paired-capture processing surface via `mealPlanMessage` so
+  // they share the topbar status channel rather than carrying a third
+  // error-state pipeline.
+  const [pairPhoneOpen, setPairPhoneOpen] = useState(false);
+  const isMobile = useIsMobile();
   // AI route is auth-gated; surface the Photo tab only when signed in.
   // The Anthropic env gate runs server-side — clicking with a stale
   // session surfaces a clear 503 error in the sheet's error state.
@@ -285,6 +316,85 @@ const MacroCalculator = () => {
   };
 
   // Append a template's foods to the target meal. Each food gets a fresh
+  /** Resolve a phone-side capture (delivered via PairPhoneDialog).
+   *  Barcode → look up via OFF; photo → download from Storage, base64,
+   *  send to /api/identify-meal. Both paths feed back into the same
+   *  state the mobile-direct flow uses, so the downstream UI (search
+   *  pick or MealPhotoReviewDialog) renders without further wiring. */
+  const handlePairedCapture = async (
+    payload:
+      | { ready: true; kind: "barcode"; barcode: string }
+      | { ready: true; kind: "photo"; photoPath: string },
+  ) => {
+    setMealPlanMessage("");
+    try {
+      if (payload.kind === "barcode") {
+        const res = await fetch(
+          `/api/off-barcode/${encodeURIComponent(payload.barcode)}`,
+        );
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(data.error ?? `Lookup failed (HTTP ${res.status})`);
+        }
+        const data = (await res.json()) as { food?: Food };
+        if (!data.food) throw new Error("OFF returned no food.");
+        handleFoodSelect(data.food);
+        return;
+      }
+      // photo path: fetch the blob from Storage, base64 it, identify.
+      const { getSupabaseBrowser } = await import("@/lib/supabase/client");
+      const supabase = getSupabaseBrowser();
+      if (!supabase) throw new Error("Supabase isn't configured.");
+      const { data: blob, error: dlError } = await supabase.storage
+        .from("captures")
+        .download(payload.photoPath);
+      if (dlError || !blob) {
+        throw new Error(dlError?.message ?? "Photo download failed.");
+      }
+      const base64 = await blobToBase64(blob);
+      // Load customs on demand — same pattern the in-sheet identify
+      // flow uses; keeps the wire shape consistent.
+      const { listCustomFoods: listFoods } = await import("./lib/db");
+      const customs = await listFoods().catch(() => []);
+      const aiRes = await fetch("/api/identify-meal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mediaType: "image/jpeg",
+          dietPreference: personalInfo.dietPreference,
+          customFoods: customs.map((c) => ({
+            name: c.name,
+            protein: c.protein,
+            carbs: c.carbs,
+            fat: c.fat,
+            calories: c.calories,
+            category: c.category,
+            subCategory: c.subCategory,
+            brand: c.brand,
+            dietKind: c.dietKind,
+          })),
+        }),
+      });
+      if (!aiRes.ok) {
+        const data = (await aiRes.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          data.error ?? `Identification failed (HTTP ${aiRes.status})`,
+        );
+      }
+      const result = (await aiRes.json()) as ResolvedMealPhoto;
+      setMealPhotoResult(result);
+    } catch (err) {
+      setMealPlanMessage(
+        err instanceof Error ? err.message : "Pair-capture handling failed.",
+      );
+    }
+  };
+
   /** Append a list of FoodItems to a meal slot. Used by the
    *  MealPhotoReviewDialog after the user confirms the AI-identified
    *  foods. The FoodItems already have proper macros (the dialog
@@ -843,8 +953,18 @@ const MacroCalculator = () => {
         onOpenChange={setCameraSheetOpen}
         aiAvailable={!!user}
         dietPreference={personalInfo.dietPreference}
+        pairPhoneAvailable={!!user && !isMobile}
         onFoodPicked={handleFoodSelect}
         onMealPhotoResolved={(result) => setMealPhotoResult(result)}
+        onSwitchToPairPhone={() => setPairPhoneOpen(true)}
+      />
+
+      <PairPhoneDialog
+        open={pairPhoneOpen}
+        onOpenChange={setPairPhoneOpen}
+        onCaptureReady={(payload) => {
+          void handlePairedCapture(payload);
+        }}
       />
 
       <MealPhotoReviewDialog
