@@ -39,6 +39,7 @@ import {
   setSyncing,
 } from "@/lib/sync-status";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { notifyDataChanged } from "./data-bus";
 import {
   customFoodFromRow,
   customFoodToRow,
@@ -93,12 +94,21 @@ const ZERO_COUNTS = {
   recipes: 0,
 };
 
-/** Push every dirty local row to Supabase with an optimistic-concurrency
- *  check (`.eq("updated_at", serverUpdatedAt)`), then pull every remote
- *  row and apply it locally as the new canonical state. Conflicts on
- *  push (push rejected because a peer device changed the row first) are
- *  counted and surfaced via the result; the row stays dirty so the
- *  *next* sync, post-pull, has a fresh base to retry from.
+/** Pull then push, in that order — critical on a first sign-in (fresh
+ *  IDB, e.g. an incognito window). If we pushed first, any synthetic
+ *  "default" row a hook had just written to IDB (an empty meals array,
+ *  a default-shaped profile) would `upsert` over the server's real
+ *  data and wipe it. Pull-first means the server is the source of
+ *  truth: real data lands in IDB before any push gets a chance to
+ *  send junk back up. On subsequent runs (data already in IDB and
+ *  marked clean) the pull is a no-op for unchanged rows; only genuine
+ *  user edits are dirty and get pushed.
+ *
+ *  Push handles its own optimistic-concurrency check
+ *  (`.eq("updated_at", serverUpdatedAt)`) — conflicts on push (rejected
+ *  because a peer device changed the same row first) are counted and
+ *  surfaced via `result.conflicts`; the row stays dirty so the next
+ *  sync, post-pull, has a fresh base to retry from.
  *
  *  Idempotent — re-running converges to the latest server state for
  *  every clean row and pushes any still-dirty rows on the next attempt. */
@@ -112,19 +122,20 @@ export async function runInitialSync(
     conflicts: 0,
   };
 
-  await pushProfile(supabase, userId, result);
-  await pushDailyLogs(supabase, userId, result);
-  await pushWeightEntries(supabase, userId, result);
-  await pushCustomFoods(supabase, userId, result);
-  await pushMealTemplates(supabase, userId, result);
-  await pushRecipes(supabase, userId, result);
-
+  // Pull first — see the comment above for the incognito-clobber reason.
   await pullProfile(supabase, userId, result);
   await pullDailyLogs(supabase, userId, result);
   await pullWeightEntries(supabase, userId, result);
   await pullCustomFoods(supabase, userId, result);
   await pullMealTemplates(supabase, userId, result);
   await pullRecipes(supabase, userId, result);
+
+  await pushProfile(supabase, userId, result);
+  await pushDailyLogs(supabase, userId, result);
+  await pushWeightEntries(supabase, userId, result);
+  await pushCustomFoods(supabase, userId, result);
+  await pushMealTemplates(supabase, userId, result);
+  await pushRecipes(supabase, userId, result);
 
   return result;
 }
@@ -557,6 +568,11 @@ async function pullProfile(
   if (shouldApplyServer(local?.serverUpdatedAt, row.updated_at)) {
     await applyServerProfile(profile, row.updated_at);
     result.pulled.profile = 1;
+    // Tell the data bus so useProfile re-runs its load effect and
+    // updates React state. Without this, the hook would keep its
+    // pre-sync in-memory state and the next debounced save would
+    // overwrite the row we just pulled.
+    notifyDataChanged("profile");
   }
 }
 
@@ -577,6 +593,7 @@ async function pullDailyLogs(
   const locals = new Map(
     (await listDailyLogs()).map((l: DailyLog) => [l.date, l]),
   );
+  const before = result.pulled.dailyLogs;
   for (const row of data as DailyLogRow[]) {
     const localRow = locals.get(row.date);
     if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
@@ -584,6 +601,7 @@ async function pullDailyLogs(
     await applyServerDailyLog(log.date, log.meals, row.updated_at);
     result.pulled.dailyLogs++;
   }
+  if (result.pulled.dailyLogs > before) notifyDataChanged("dailyLogs");
 }
 
 async function pullWeightEntries(
@@ -603,6 +621,7 @@ async function pullWeightEntries(
   const locals = new Map(
     (await listWeightEntries()).map((e: WeightEntry) => [e.date, e]),
   );
+  const before = result.pulled.weightEntries;
   for (const row of data as WeightRow[]) {
     const localRow = locals.get(row.date);
     if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
@@ -610,6 +629,7 @@ async function pullWeightEntries(
     await applyServerWeightEntry(entry.date, entry.kg, row.updated_at);
     result.pulled.weightEntries++;
   }
+  if (result.pulled.weightEntries > before) notifyDataChanged("weightHistory");
 }
 
 async function pullCustomFoods(
@@ -631,12 +651,14 @@ async function pullCustomFoods(
   const locals = new Map(
     (await listCustomFoods()).map((f: CustomFood) => [f.id, f]),
   );
+  const before = result.pulled.customFoods;
   for (const row of data as CustomFoodRow[]) {
     const localRow = locals.get(row.id);
     if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
     await applyServerCustomFood(customFoodFromRow(row), row.updated_at);
     result.pulled.customFoods++;
   }
+  if (result.pulled.customFoods > before) notifyDataChanged("customFoods");
 }
 
 async function pullMealTemplates(
@@ -656,12 +678,14 @@ async function pullMealTemplates(
   const locals = new Map(
     (await listMealTemplates()).map((t: MealTemplate) => [t.id, t]),
   );
+  const before = result.pulled.mealTemplates;
   for (const row of data as MealTemplateRow[]) {
     const localRow = locals.get(row.id);
     if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
     await applyServerMealTemplate(mealTemplateFromRow(row), row.updated_at);
     result.pulled.mealTemplates++;
   }
+  if (result.pulled.mealTemplates > before) notifyDataChanged("mealTemplates");
 }
 
 async function pullRecipes(
@@ -685,12 +709,14 @@ async function pullRecipes(
       (r: Recipe & { serverUpdatedAt?: string | null }) => [r.id, r],
     ),
   );
+  const before = result.pulled.recipes;
   for (const row of data as RecipeRow[]) {
     const localRow = locals.get(row.id);
     if (!shouldApplyServer(localRow?.serverUpdatedAt, row.updated_at)) continue;
     await applyServerRecipe(recipeFromRow(row), row.updated_at);
     result.pulled.recipes++;
   }
+  if (result.pulled.recipes > before) notifyDataChanged("recipes");
 }
 
 /** Should we overwrite local with this server row? Yes if we've never

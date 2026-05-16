@@ -1,10 +1,22 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, expect, it, vi } from "vitest";
-import { notifyDataChanged, subscribeDataChanged } from "./data-bus";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  __resetDataBusForTests,
+  getDataVersion,
+  notifyDataChanged,
+  subscribeDataChanged,
+} from "./data-bus";
 
 describe("data-bus", () => {
+  beforeEach(() => {
+    __resetDataBusForTests();
+  });
+  afterEach(() => {
+    __resetDataBusForTests();
+  });
+
   it("delivers notifications to subscribers of the matching table only", () => {
     const profileCb = vi.fn();
     const customCb = vi.fn();
@@ -21,6 +33,23 @@ describe("data-bus", () => {
 
     unsub1();
     unsub2();
+  });
+
+  it("increments getDataVersion on every notify (closes the notify-before-subscribe race)", () => {
+    // The bug this guards: in a fresh-window sign-in, the sync engine's
+    // pull can fire `notifyDataChanged("profile")` *before* React has
+    // committed the effect that subscribes a `useDataRev`. Without a
+    // persistent version, that notification is delivered to zero
+    // subscribers and lost — the hook never re-hydrates and the next
+    // auto-save uploads stale defaults.
+    expect(getDataVersion("profile")).toBe(0);
+    notifyDataChanged("profile");
+    expect(getDataVersion("profile")).toBe(1);
+    notifyDataChanged("profile");
+    notifyDataChanged("profile");
+    expect(getDataVersion("profile")).toBe(3);
+    // Other tables unaffected.
+    expect(getDataVersion("customFoods")).toBe(0);
   });
 
   it("supports multiple subscribers on the same table", () => {

@@ -445,3 +445,142 @@ describe("triggerSync — conflict status flip", () => {
     expect(getSyncStatus().state).toBe("synced");
   });
 });
+
+describe("runInitialSync — pull-then-push order (incognito-clobber fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetSyncStatusForTests();
+  });
+
+  it("pulls profile before any push runs", async () => {
+    // The data-loss bug this guards: when push runs first, an
+    // incognito session's just-saved `defaultProfile` gets `upsert`ed
+    // over the server's real profile. With pull-first, the server's
+    // real profile lands in IDB before any push has a chance to
+    // upload local junk.
+    vi.mocked(db.listCustomFoods).mockResolvedValue([]);
+    vi.mocked(db.listDailyLogs).mockResolvedValue([]);
+    vi.mocked(db.listWeightEntries).mockResolvedValue([]);
+    vi.mocked(db.listMealTemplates).mockResolvedValue([]);
+    vi.mocked(db.listRecipes).mockResolvedValue([]);
+    vi.mocked(db.getProfileRecord).mockResolvedValue(null);
+
+    // Track the order of high-level call types by inspecting which
+    // `from(<table>)` chain was invoked first.
+    const callOrder: string[] = [];
+    const sb = {
+      from: (table: string) => ({
+        select: () => {
+          callOrder.push(`select:${table}`);
+          const builder = {
+            eq: () => builder,
+            abortSignal: () => {
+              const empty = Promise.resolve({ data: [], error: null });
+              return Object.assign(empty, {
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              });
+            },
+          };
+          return builder;
+        },
+        upsert: () => {
+          callOrder.push(`upsert:${table}`);
+          return {
+            select: () => ({
+              abortSignal: () => ({
+                single: () =>
+                  Promise.resolve({
+                    data: { updated_at: "2026-05-16T12:00:00Z" },
+                    error: null,
+                  }),
+              }),
+            }),
+          };
+        },
+        update: () => {
+          callOrder.push(`update:${table}`);
+          const fb = {
+            eq: () => fb,
+            select: () => ({
+              abortSignal: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              }),
+            }),
+          };
+          return fb;
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    await triggerSync(sb, USER_ID);
+
+    // The first call should be a SELECT (pull), not an upsert/update.
+    expect(callOrder[0]?.startsWith("select:")).toBe(true);
+    // No upserts/updates at all in this scenario (nothing local).
+    expect(callOrder.some((c) => c.startsWith("upsert:"))).toBe(false);
+    expect(callOrder.some((c) => c.startsWith("update:"))).toBe(false);
+  });
+
+  it("notifies the data bus when a pull writes a fresh profile", async () => {
+    // After pull writes the server's data into IDB, the hooks must
+    // re-hydrate React state — otherwise the next debounced auto-save
+    // would push the stale React-side default and overwrite the row
+    // we just pulled.
+    vi.mocked(db.listCustomFoods).mockResolvedValue([]);
+    vi.mocked(db.listDailyLogs).mockResolvedValue([]);
+    vi.mocked(db.listWeightEntries).mockResolvedValue([]);
+    vi.mocked(db.listMealTemplates).mockResolvedValue([]);
+    vi.mocked(db.listRecipes).mockResolvedValue([]);
+    vi.mocked(db.getProfileRecord).mockResolvedValue(null);
+
+    const { subscribeDataChanged } = await import("./data-bus");
+    const busCb = vi.fn();
+    const unsub = subscribeDataChanged("profile", busCb);
+
+    // Supabase mock: profile pull returns a real row.
+    const sb = {
+      from: (table: string) => ({
+        select: () => {
+          const builder = {
+            eq: () => builder,
+            abortSignal: () => {
+              if (table === "profiles") {
+                const p = Promise.resolve({
+                  data: {
+                    user_id: USER_ID,
+                    payload: { weight: 80 },
+                    updated_at: "2026-05-16T12:00:00Z",
+                  },
+                  error: null,
+                });
+                return Object.assign(p, {
+                  maybeSingle: () =>
+                    Promise.resolve({
+                      data: {
+                        user_id: USER_ID,
+                        payload: { weight: 80 },
+                        updated_at: "2026-05-16T12:00:00Z",
+                      },
+                      error: null,
+                    }),
+                });
+              }
+              const empty = Promise.resolve({ data: [], error: null });
+              return Object.assign(empty, {
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              });
+            },
+          };
+          return builder;
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    await triggerSync(sb, USER_ID);
+
+    expect(vi.mocked(db.applyServerProfile)).toHaveBeenCalledTimes(1);
+    expect(busCb).toHaveBeenCalledTimes(1);
+
+    unsub();
+  });
+});

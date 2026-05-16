@@ -39,6 +39,16 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
   // it in the load effect's dep array re-runs the load and pulls the
   // new value into React state without needing a page refresh.
   const profileRev = useDataRev("profile");
+  // Gate the auto-save on a *real* user edit. Without it, a fresh
+  // session (incognito window, freshly cleared IDB) would auto-save
+  // the synthetic `defaultProfile` to IDB before the initial sync
+  // runs, and the first push would upload those defaults — clobbering
+  // the user's real profile on the server. Set to true only by the
+  // setProfile / patchProfile callbacks below; the load effect bumps
+  // it implicitly by writing back whatever it loaded from IDB (a
+  // saved row from a prior session) — that's the "an actual profile
+  // exists" signal.
+  const hasRealLocalData = useRef(false);
 
   // Load on mount and on every realtime arrival.
   useEffect(() => {
@@ -49,7 +59,11 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
         // Merge defaults *behind* the loaded record so new fields added in
         // later schema versions (e.g. dietPreference) get a sane value when
         // an existing IDB / Supabase profile lacks them.
-        if (loaded) setProfileState({ ...defaultProfile, ...loaded });
+        if (loaded) {
+          setProfileState({ ...defaultProfile, ...loaded });
+          // We loaded a real row from IDB — auto-saves are now safe.
+          hasRealLocalData.current = true;
+        }
         setIsHydrated(true);
       })
       .catch((err) => {
@@ -63,10 +77,13 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
     };
   }, [defaultProfile, profileRev]);
 
-  // Debounced write. Gated on `isHydrated` so we don't immediately write
-  // the synthetic default over a freshly-loaded profile.
+  // Debounced write. Gated on `isHydrated` (so we don't write before
+  // load resolves) and on `hasRealLocalData` (so a fresh session that
+  // had nothing to load doesn't write synthetic defaults to IDB — see
+  // the ref's declaration for the data-loss scenario this guards).
   useEffect(() => {
     if (!isHydrated) return;
+    if (!hasRealLocalData.current) return;
     const t = window.setTimeout(() => {
       saveProfile(profile)
         .then(() => {
@@ -105,14 +122,19 @@ export function useProfile(defaultProfile: PersonalInfo): ProfileState {
 
   // Public setters — bump the sync-pending counter so the topbar pill
   // can signal "you have local changes." Internal hydration uses
-  // setProfileState directly to avoid spurious pending signals.
+  // setProfileState directly to avoid spurious pending signals. Both
+  // setters flip `hasRealLocalData` so subsequent saves are allowed
+  // even on a fresh session where nothing was loaded from IDB — the
+  // user has explicitly produced real data.
   const setProfile = useCallback((next: PersonalInfo) => {
+    hasRealLocalData.current = true;
     bumpPending();
     setProfileState(next);
   }, []);
 
   const patchProfile = useCallback(
     (name: keyof PersonalInfo, value: PersonalInfo[keyof PersonalInfo]) => {
+      hasRealLocalData.current = true;
       bumpPending();
       setProfileState((prev) => ({ ...prev, [name]: value }));
     },

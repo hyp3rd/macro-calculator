@@ -125,4 +125,58 @@ describe("useDailyLog", () => {
     // (the load hasn't even resolved).
     expect(saveSpy).not.toHaveBeenCalled();
   });
+
+  it("does NOT auto-save synthetic defaults when nothing was loaded from IDB", async () => {
+    // The regression this guards: a fresh session (incognito window /
+    // freshly cleared IDB) would otherwise auto-save the empty
+    // `defaultMeals` to IDB, and the initial sync push would upload
+    // those empties — clobbering the user's real server-side meals.
+    const { useDailyLog } = await freshHook();
+    const db = await import("@/lib/db");
+    const saveSpy = vi.spyOn(db, "saveDailyLog");
+
+    const { result } = renderHook(() =>
+      useDailyLog("2026-05-13", DEFAULT_MEALS),
+    );
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+    // Wait past the 500 ms debounce window the save effect uses.
+    await new Promise((r) => setTimeout(r, 600));
+
+    expect(saveSpy).not.toHaveBeenCalled();
+    expect(result.current.meals).toEqual(DEFAULT_MEALS);
+  });
+
+  it("auto-saves once the user actually edits", async () => {
+    const { useDailyLog } = await freshHook();
+    const db = await import("@/lib/db");
+    const saveSpy = vi.spyOn(db, "saveDailyLog");
+
+    const { result } = renderHook(() =>
+      useDailyLog("2026-05-13", DEFAULT_MEALS),
+    );
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    act(() => {
+      result.current.setMeals([
+        {
+          id: 1,
+          name: "Breakfast",
+          foods: [
+            {
+              id: 1,
+              name: "Eggs",
+              protein: 6,
+              carbs: 0,
+              fat: 5,
+              calories: 70,
+              portionSize: 50,
+            },
+          ],
+        },
+        ...DEFAULT_MEALS.slice(1),
+      ]);
+    });
+
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+  });
 });
