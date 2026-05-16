@@ -28,9 +28,12 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+  // Accept any string and digit-strip — phones can deliver values with
+  // stray whitespace (clipboard paste in the manual-entry fallback) or
+  // a trailing format suffix. We only care that 8–14 digits come out.
   const raw = typeof body.code === "string" ? body.code : "";
   const code = raw.replace(/\D/g, "");
-  if (code.length < 8 || code.length > 14 || code !== raw) {
+  if (code.length < 8 || code.length > 14) {
     return NextResponse.json(
       { error: "Invalid barcode format." },
       { status: 400 },

@@ -25,10 +25,12 @@ export async function GET(
   ctx: { params: Promise<{ code: string }> },
 ): Promise<NextResponse> {
   const { code: raw } = await ctx.params;
-  // Strict: digits only, EAN-8 / UPC-A / EAN-13 / ITF-14 range.
-  // Reject anything else so we don't proxy abuse (path traversal, etc.).
+  // Digit-strip then validate length. We don't reject the original raw
+  // for containing non-digits — the URL is encoded by encodeURIComponent
+  // and we re-build the upstream URL from `code` only, so path traversal
+  // can't slip through.
   const code = raw.replace(/\D/g, "");
-  if (code.length < 8 || code.length > 14 || code !== raw) {
+  if (code.length < 8 || code.length > 14) {
     return NextResponse.json(
       { error: "Invalid barcode format." },
       { status: 400 },
