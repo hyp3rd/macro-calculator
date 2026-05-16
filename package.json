@@ -1,6 +1,6 @@
 {
   "name": "macro-calculator",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Easy to use macro calculator.",
   "engines": {
