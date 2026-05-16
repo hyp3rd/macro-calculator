@@ -23,11 +23,13 @@ import {
   type ExportProgress,
 } from "@/lib/export";
 import { planFromFile, planImport, type ImportPlan } from "@/lib/import";
+import { GITHUB_REPO_URL } from "@/lib/links";
 import {
   downloadExport as downloadCloudExport,
   uploadExport,
 } from "@/lib/storage/exports";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { APP_VERSION } from "@/lib/version";
 import { useRef, useState } from "react";
 import {
   Cloud,
@@ -282,7 +284,10 @@ export function SettingsView() {
         </header>
         <div className="space-y-4 px-5 py-4">
           {/* ─── Export controls ──────────────────────────────────────── */}
-          <div className="flex items-center justify-between gap-4">
+          {/* Mobile stacks text + buttons; sm+ restores the side-by-side
+              row. Buttons grow to full width when stacked so the tap
+              target is obvious, snap back to compact on sm+. */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground">
               <p>
                 Profile, daily logs, weight history, custom foods, meal
@@ -306,14 +311,14 @@ export function SettingsView() {
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 gap-1.5">
+            <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={handleExportToDisk}
                 disabled={exportBusy}
-                className="h-8 gap-1.5"
+                className="h-9 gap-1.5 sm:h-8"
               >
                 <Download className="h-3.5 w-3.5" />
                 {exportBusy && !user ? "Preparing…" : "Save to disk"}
@@ -325,7 +330,7 @@ export function SettingsView() {
                   size="sm"
                   onClick={handleExportToCloud}
                   disabled={exportBusy}
-                  className="h-8 gap-1.5"
+                  className="h-9 gap-1.5 sm:h-8"
                   title="Upload to your private cloud bucket"
                 >
                   <CloudUpload className="h-3.5 w-3.5" />
@@ -350,7 +355,7 @@ export function SettingsView() {
           )}
 
           {/* ─── Import (always available) ─────────────────────────── */}
-          <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-4">
+          <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground">
               <p>
                 Restore from a previous export. We show a diff first; nothing is
@@ -379,7 +384,7 @@ export function SettingsView() {
               size="sm"
               onClick={() => importInputRef.current?.click()}
               disabled={importBusy}
-              className="h-8 shrink-0 gap-1.5"
+              className="h-9 shrink-0 gap-1.5 sm:h-8"
             >
               <Upload className="h-3.5 w-3.5" />
               {importBusy ? "Reading…" : "Import from file"}
@@ -405,6 +410,8 @@ export function SettingsView() {
         }}
       />
 
+      <AboutSection />
+
       {user && (
         <DeleteAccountSection
           userEmail={user.email ?? null}
@@ -412,6 +419,38 @@ export function SettingsView() {
         />
       )}
     </div>
+  );
+}
+
+/** App version + repo / bug-report shortcuts. Lives just above the
+ *  destructive Delete-account section so it's the last benign panel in
+ *  the page — easy to spot when someone scrolls all the way down to
+ *  "check the version" without dragging eyes through dangerous controls. */
+function AboutSection() {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+      <header className="border-b border-border/60 px-5 py-3">
+        <h3 className="text-sm font-semibold tracking-tight">About</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Build info and links to the source.
+        </p>
+      </header>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-5 py-4 text-xs">
+        <dt className="text-muted-foreground">Version</dt>
+        <dd className="font-mono tabular-nums">v{APP_VERSION}</dd>
+        <dt className="text-muted-foreground">Source</dt>
+        <dd>
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline-offset-2 hover:underline"
+          >
+            github.com/hyp3rd/macro-calculator
+          </a>
+        </dd>
+      </dl>
+    </section>
   );
 }
 

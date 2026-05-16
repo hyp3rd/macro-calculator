@@ -87,12 +87,42 @@
   html,
   body {
     @apply bg-background text-foreground;
+    /* Kill the dimmable grey overlay iOS Safari draws on every
+       tappable element by default — it looks foreign in an app shell
+       where we already render our own active/hover states. */
+    -webkit-tap-highlight-color: transparent;
+    /* Disable text inflation iOS Safari does in portrait when it
+       thinks paragraphs are too small. We pick our own sizes; let
+       them stand. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     font-feature-settings:
       "rlig" 1,
       "calt" 1,
       "cv11" 1;
+    /* Smoother momentum scrolling inside scroll containers on iOS. */
+    -webkit-overflow-scrolling: touch;
+  }
+  /* iOS Safari auto-zooms on focus when the input's computed font-size
+     is below 16px. Many of our inputs use h-8 + text-xs (12px) for
+     density, which then triggers the zoom and never zooms back out
+     cleanly. Bump the *base* size to 16px on coarse pointers (phones,
+     touch laptops) without touching the desktop visual. The padding
+     stays the same; only the typed text grows.
+
+     This is a global rule on purpose — there are dozens of inputs in
+     this app and tagging every one is fragile. Density-critical inputs
+     (the macro tables) opt out with `.no-mobile-zoom-fix`. */
+  @media (pointer: coarse) {
+    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(
+        [type="color"]
+      ):not(.no-mobile-zoom-fix),
+    select:not(.no-mobile-zoom-fix),
+    textarea:not(.no-mobile-zoom-fix) {
+      font-size: 16px;
+    }
   }
   /* Use tabular numerals for any element that wants stable digit width. */
   .tabular-nums {
@@ -100,6 +130,43 @@
   }
   ::selection {
     @apply bg-foreground/15;
+  }
+  /* Headroom on the html element so `min-h-screen` / `h-screen`
+     accounts for the iOS notch and home indicator. Inherits via
+     `flex h-screen` and similar root containers across the app. */
+  html {
+    height: 100%;
+  }
+  body {
+    min-height: 100%;
+  }
+}
+
+/* Safe-area helpers. Tailwind doesn't ship these by default and the
+   inline `pt-[env(safe-area-inset-top)]` ergonomics are awful. */
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  /* Add to existing padding rather than replacing it. */
+  .pt-safe-plus-2 {
+    padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+  }
+  .pb-safe-plus-2 {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
   }
 }
 
