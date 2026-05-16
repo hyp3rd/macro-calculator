@@ -1,9 +1,10 @@
 "use client";
 
 import type { ResolvedMealPhoto } from "@/app/api/identify-meal/route";
-import type { FoodItem, Meal } from "@/components/macro/types";
+import type { FoodItem, FoodKind, Meal } from "@/components/macro/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -22,10 +23,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useState } from "react";
-import { AlertCircle, Trash2 } from "lucide-react";
+import { Sparkles, Trash2 } from "lucide-react";
 
 const PORTION_MIN = 5;
 const PORTION_MAX = 500;
+
+/** Newly-discovered foods the dialog will save as custom foods on
+ *  confirm (when the user opts in). The parent owns the actual save
+ *  via the `onSaveCustomFoods` callback so this dialog stays
+ *  presentational and the IDB write goes through one code path. */
+export type EstimatedCustomFood = {
+  name: string;
+  protein: number;
+  carbs: number;
+  fat: number;
+  calories: number;
+  dietKind?: FoodKind;
+};
 
 type Props = {
   open: boolean;
@@ -34,10 +48,14 @@ type Props = {
   result: ResolvedMealPhoto | null;
   /** The user's current meal slots — picker source. */
   meals: Meal[];
-  /** Fires with the chosen meal id + the FoodItems to append. The
-   *  parent owns the actual setMeals update so this dialog stays
-   *  presentational. */
-  onConfirm: (mealId: number, foods: FoodItem[]) => void;
+  /** Fires with the chosen meal id + the FoodItems to append AND
+   *  (when the user opted in) the AI-estimated foods to persist as
+   *  custom foods. The parent owns the actual writes. */
+  onConfirm: (
+    mealId: number,
+    foods: FoodItem[],
+    newCustomFoods: EstimatedCustomFood[],
+  ) => void;
 };
 
 /** Multi-food review screen for the meal-photo flow. The AI returned a
@@ -62,8 +80,8 @@ export function MealPhotoReviewDialog({
           <ReviewBody
             result={result}
             meals={meals}
-            onConfirm={(mealId, foods) => {
-              onConfirm(mealId, foods);
+            onConfirm={(mealId, foods, newCustomFoods) => {
+              onConfirm(mealId, foods, newCustomFoods);
               onOpenChange(false);
             }}
             onCancel={() => onOpenChange(false)}
@@ -103,11 +121,20 @@ function ReviewBody({
 }: {
   result: ResolvedMealPhoto;
   meals: Meal[];
-  onConfirm: (mealId: number, foods: FoodItem[]) => void;
+  onConfirm: (
+    mealId: number,
+    foods: FoodItem[],
+    newCustomFoods: EstimatedCustomFood[],
+  ) => void;
   onCancel: () => void;
 }) {
   const [rows, setRows] = useState<Row[]>(result.foods);
   const [mealId, setMealId] = useState<number | null>(meals[0]?.id ?? null);
+  // Whether to persist AI-estimated rows as custom foods on confirm. The
+  // default is on: the user just spent the effort to identify a tomato,
+  // saving it means the next photo of the same item resolves to the
+  // catalog (no AI guess), which is the whole point of the loop.
+  const [saveEstimated, setSaveEstimated] = useState(true);
 
   function updateGrams(idx: number, raw: string) {
     const n = Number.parseInt(raw, 10);
@@ -141,8 +168,21 @@ function ReviewBody({
     if (!canConfirm) return;
     const idBase = Date.now();
     const items = rows.map((r, i) => buildFoodItem(r, idBase, i));
-    onConfirm(mealId, items);
+    const newCustomFoods: EstimatedCustomFood[] = saveEstimated
+      ? rows
+          .filter((r) => r.estimated)
+          .map((r) => ({
+            name: r.name,
+            protein: r.per100g.protein,
+            carbs: r.per100g.carbs,
+            fat: r.per100g.fat,
+            calories: r.per100g.calories,
+          }))
+      : [];
+    onConfirm(mealId, items, newCustomFoods);
   }
+
+  const estimatedCount = rows.filter((r) => r.estimated).length;
 
   return (
     <>
@@ -174,6 +214,7 @@ function ReviewBody({
                         {row.name}
                       </span>
                       <ConfidenceBadge level={row.confidence} />
+                      {row.estimated && <EstimatedBadge />}
                     </div>
                     <div className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
                       {Math.round(row.per100g.calories * ratio)} kcal · P
@@ -218,22 +259,25 @@ function ReviewBody({
           </div>
         )}
 
-        {result.unmatched.length > 0 && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div>
-              <p className="font-medium">
-                Skipped {result.unmatched.length} item
-                {result.unmatched.length === 1 ? "" : "s"} not in your catalog:
-              </p>
-              <p className="mt-0.5 text-[11px] opacity-80">
-                {result.unmatched.join(", ")}
-              </p>
-              <p className="mt-1 text-[11px] opacity-70">
-                Add them as custom foods if you want them recognized next time.
-              </p>
-            </div>
-          </div>
+        {estimatedCount > 0 && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+            <Checkbox
+              id="save-estimated"
+              checked={saveEstimated}
+              onCheckedChange={(v) => setSaveEstimated(v === true)}
+              className="mt-0.5"
+            />
+            <span className="flex-1 leading-snug">
+              <span className="font-medium">
+                Save {estimatedCount} AI-estimated food
+                {estimatedCount === 1 ? "" : "s"} to My Foods
+              </span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                Next photo of the same item will use these macros instead of
+                another AI guess. You can edit them later in My Foods.
+              </span>
+            </span>
+          </label>
         )}
 
         <div className="space-y-1.5 border-t border-border/60 pt-3">
@@ -283,6 +327,19 @@ function ReviewBody({
         </Button>
       </DialogFooter>
     </>
+  );
+}
+
+function EstimatedBadge() {
+  return (
+    <Badge
+      variant="secondary"
+      className="shrink-0 gap-1 bg-indigo-500/15 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300"
+      title="Macros estimated by AI — not in your catalog. Edit grams if needed."
+    >
+      <Sparkles className="h-2.5 w-2.5" />
+      AI est.
+    </Badge>
   );
 }
 

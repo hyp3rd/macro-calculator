@@ -171,7 +171,7 @@ function CameraSheetBody({
         );
       }
       const result = (await res.json()) as ResolvedMealPhoto;
-      if (result.foods.length === 0 && result.unmatched.length === 0) {
+      if (result.foods.length === 0) {
         throw new Error("No foods identified in the photo.");
       }
       onMealPhotoResolved(result);

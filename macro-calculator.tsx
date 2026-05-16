@@ -974,7 +974,27 @@ const MacroCalculator = () => {
         }}
         result={mealPhotoResult}
         meals={meals}
-        onConfirm={(mealId, foods) => {
+        onConfirm={(mealId, foods, newCustomFoods) => {
+          // Persist the AI-estimated foods first so they're indexed for
+          // the next time the user photographs the same item. addCustomFood
+          // resolves async but the IDB write is durable; bump the rev so
+          // the search list refreshes after navigation.
+          if (newCustomFoods.length > 0) {
+            (async () => {
+              for (const c of newCustomFoods) {
+                await addCustomFood({
+                  name: c.name,
+                  protein: c.protein,
+                  carbs: c.carbs,
+                  fat: c.fat,
+                  calories: c.calories,
+                  dietKind: c.dietKind,
+                });
+              }
+              bumpPending();
+              setCustomFoodsRev((r) => r + 1);
+            })();
+          }
           handleBulkAddToMeal(mealId, foods);
           setMealPhotoResult(null);
         }}

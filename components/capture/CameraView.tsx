@@ -159,25 +159,6 @@ export function CameraView({
     return stop;
   }, [mode, phase.kind, detectorAvailable]);
 
-  // Auto-switch off scan mode when the browser turns out to lack
-  // BarcodeDetector (iOS Safari is the common case — the API claims
-  // 16.4+ support but in practice it isn't shipped). Without this the
-  // user would land on the default "scan" mode with no way to switch
-  // since the Scan tab gets filtered out — leaving a live video
-  // preview with no working controls. Switch to photo if it's offered.
-  useEffect(() => {
-    if (
-      detectorAvailable === false &&
-      mode === "scan" &&
-      modes.includes("photo")
-    ) {
-      // Deferred to a microtask so the setState doesn't fire
-      // synchronously inside the effect body — react-hooks/set-state-
-      // in-effect is strict about that.
-      queueMicrotask(() => setMode("photo"));
-    }
-  }, [detectorAvailable, mode, modes]);
-
   async function handleCapturePhoto() {
     const video = videoRef.current;
     if (!video || photoBusy) return;
@@ -199,21 +180,24 @@ export function CameraView({
     }
   }
 
-  // Show the tab toggle only when more than one mode is offered AND
-  // we're past the initial camera-start (so the user isn't picking
-  // tabs while the video is still black). If BarcodeDetector turned
-  // out to be missing, hide the Scan tab so the user isn't presented
-  // with a non-functional option — they can still take photos.
-  const availableModes = modes.filter(
-    (m) => m !== "scan" || detectorAvailable !== false,
-  );
-  const showTabs = availableModes.length > 1;
+  // Tabs render whenever more than one mode is configured. We do NOT
+  // hide the Scan tab just because BarcodeDetector is missing — the
+  // tab still works via manual-entry fallback rendered inline below
+  // the video. Hiding the tab made it impossible to access the OFF
+  // lookup at all on iOS Safari (where the API isn't shipped despite
+  // some compat tables claiming 16.4+ support).
+  const showTabs = modes.length > 1;
+  // Show the manual-entry input when scan mode is active and the
+  // browser can't do live detection. Same input either way — the
+  // user types the digits, we look up via OFF.
+  const showManualEntry =
+    phase.kind === "scanning" && mode === "scan" && detectorAvailable === false;
 
   return (
     <div className="space-y-3">
       {showTabs && phase.kind !== "manual" && (
         <div className="flex gap-1 rounded-md border border-border/60 bg-muted/30 p-1">
-          {availableModes.includes("scan") && (
+          {modes.includes("scan") && (
             <button
               type="button"
               onClick={() => setMode("scan")}
@@ -229,7 +213,7 @@ export function CameraView({
               </span>
             </button>
           )}
-          {availableModes.includes("photo") && (
+          {modes.includes("photo") && (
             <button
               type="button"
               onClick={() => setMode("photo")}
@@ -261,19 +245,30 @@ export function CameraView({
             Starting camera…
           </div>
         )}
-        {phase.kind === "scanning" && mode === "scan" && (
-          <div
-            className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 animate-pulse rounded-full bg-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.7)]"
-            aria-hidden
-          />
-        )}
+        {phase.kind === "scanning" &&
+          mode === "scan" &&
+          detectorAvailable === true && (
+            <div
+              className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 animate-pulse rounded-full bg-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.7)]"
+              aria-hidden
+            />
+          )}
       </div>
 
-      {phase.kind === "scanning" && mode === "scan" && (
-        <p className="flex items-center gap-1.5 text-center text-xs text-muted-foreground">
-          <ScanLine className="h-3.5 w-3.5" />
-          Point the camera at a product barcode — detection is automatic.
-        </p>
+      {phase.kind === "scanning" &&
+        mode === "scan" &&
+        detectorAvailable === true && (
+          <p className="flex items-center gap-1.5 text-center text-xs text-muted-foreground">
+            <ScanLine className="h-3.5 w-3.5" />
+            Point the camera at a product barcode — detection is automatic.
+          </p>
+        )}
+
+      {showManualEntry && (
+        <ManualBarcodeEntry
+          reason="Live scanning isn't supported in this browser. Type the digits below."
+          onSubmit={(code) => (onManualBarcode ?? onBarcode)(code)}
+        />
       )}
 
       {phase.kind === "scanning" && mode === "photo" && (
