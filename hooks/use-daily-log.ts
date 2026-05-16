@@ -5,7 +5,7 @@ import { getDailyLog, saveDailyLog } from "@/lib/db";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
 import { useDataRev } from "@/lib/sync/data-bus";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const WRITE_DEBOUNCE_MS = 500;
 
@@ -36,6 +36,14 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
   // re-read for the current day returns the same data and React
   // diffs it as a no-op.
   const dailyLogsRev = useDataRev("dailyLogs");
+  // Gate the auto-save on a *real* user edit. Without it, a fresh
+  // session (incognito window, freshly cleared IDB) would auto-save
+  // the synthetic `defaultMeals` to IDB before the initial sync runs,
+  // and the first push would upload an empty meals array — clobbering
+  // the user's actual logged meals on the server. Set true by the
+  // load effect when an actual saved row was loaded, and by `setMeals`
+  // when the user produces real data.
+  const hasRealLocalData = useRef(false);
 
   useEffect(() => {
     if (date === "") return; // SSR snapshot; skip until hydrate.
@@ -44,6 +52,7 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
       .then((log) => {
         if (cancelled) return;
         setMealsState(log?.meals ?? defaultMeals);
+        if (log) hasRealLocalData.current = true;
         setLoadedFor(date);
       })
       .catch((err) => {
@@ -59,6 +68,7 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
 
   useEffect(() => {
     if (!isHydrated) return;
+    if (!hasRealLocalData.current) return;
     const t = window.setTimeout(() => {
       saveDailyLog(date, meals).then(reportStorageOk).catch(reportStorageError);
     }, WRITE_DEBOUNCE_MS);
@@ -66,9 +76,12 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
   }, [meals, date, isHydrated]);
 
   // Public setter — bumps the sync-pending counter so the topbar pill
-  // can signal "you have local changes." Internal hydration uses
-  // setMealsState directly to avoid spurious pending signals.
+  // can signal "you have local changes." Also flips `hasRealLocalData`
+  // so the auto-save effect is unblocked even on a fresh session where
+  // nothing was loaded from IDB. Internal hydration uses setMealsState
+  // directly to avoid spurious pending signals.
   function setMeals(next: Meal[]) {
+    hasRealLocalData.current = true;
     bumpPending();
     setMealsState(next);
   }
