@@ -1,7 +1,8 @@
 "use client";
 
+import type { ResolvedMealPhoto } from "@/app/api/identify-meal/route";
 import { CameraView } from "@/components/capture/CameraView";
-import type { Food } from "@/components/macro/types";
+import type { DietPreference, Food } from "@/components/macro/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,29 +11,46 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { listCustomFoods } from "@/lib/db";
 import { useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 
-/** Entry-point dialog opened from AddFoodForm's "Scan barcode" button.
- *  Phase 1: barcode lookup only. The Phase 2 "Take photo" tab and the
- *  Phase 3 "Pair phone" tab will live alongside the current barcode
- *  pane without reshuffling. */
+/** Entry-point dialog opened from AddFoodForm's "Camera" button.
+ *  Phase 1: barcode lookup. Phase 2: meal photo → AI identification.
+ *  Phase 3 (deferred): laptop pairing tab. */
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Whether AI identification is wired (env + auth). When false, the
+   *  Photo tab is hidden so the user isn't presented with a button
+   *  that 503s. The barcode path always works (no AI). */
+  aiAvailable: boolean;
+  /** Profile's diet preference — sent to /api/identify-meal so the
+   *  seed catalog the AI sees matches the user's universe. */
+  dietPreference?: DietPreference;
   /** Fires when a Food has been resolved (via OFF barcode lookup).
-   *  The parent (AddFoodForm via macro-calculator) should pipe it
-   *  through `handleFoodSelect` exactly like a typed-search pick. */
+   *  The parent should pipe it through `handleFoodSelect`. */
   onFoodPicked: (food: Food) => void;
+  /** Fires after the AI returns a resolved meal-photo identification.
+   *  The parent owns opening MealPhotoReviewDialog with this result. */
+  onMealPhotoResolved: (result: ResolvedMealPhoto) => void;
 };
 
 type Phase =
-  | { kind: "scan" }
+  | { kind: "capture" }
   | { kind: "looking-up"; code: string }
+  | { kind: "identifying" }
   | { kind: "error"; message: string };
 
-export function CameraSheet({ open, onOpenChange, onFoodPicked }: Props) {
+export function CameraSheet({
+  open,
+  onOpenChange,
+  aiAvailable,
+  dietPreference,
+  onFoodPicked,
+  onMealPhotoResolved,
+}: Props) {
   return (
     <Dialog
       open={open}
@@ -41,8 +59,14 @@ export function CameraSheet({ open, onOpenChange, onFoodPicked }: Props) {
       <DialogContent className="max-w-lg">
         {open && (
           <CameraSheetBody
+            aiAvailable={aiAvailable}
+            dietPreference={dietPreference}
             onPicked={(food) => {
               onFoodPicked(food);
+              onOpenChange(false);
+            }}
+            onMealPhotoResolved={(result) => {
+              onMealPhotoResolved(result);
               onOpenChange(false);
             }}
           />
@@ -52,13 +76,30 @@ export function CameraSheet({ open, onOpenChange, onFoodPicked }: Props) {
   );
 }
 
-function CameraSheetBody({ onPicked }: { onPicked: (food: Food) => void }) {
-  // `key` cycles when the user clicks "Scan again" so CameraView
+function CameraSheetBody({
+  aiAvailable,
+  dietPreference,
+  onPicked,
+  onMealPhotoResolved,
+}: {
+  aiAvailable: boolean;
+  dietPreference?: DietPreference;
+  onPicked: (food: Food) => void;
+  onMealPhotoResolved: (result: ResolvedMealPhoto) => void;
+}) {
+  // `resetKey` cycles when the user clicks "Try again" so CameraView
   // remounts cleanly (re-acquires camera, restarts the detect loop).
   const [resetKey, setResetKey] = useState(0);
-  const [phase, setPhase] = useState<Phase>({ kind: "scan" });
+  const [phase, setPhase] = useState<Phase>({ kind: "capture" });
 
-  async function lookup(code: string) {
+  // Build the modes array based on whether AI is available. Without
+  // AI the user still gets the full barcode flow — the Photo tab is
+  // simply absent.
+  const modes: Array<"scan" | "photo"> = aiAvailable
+    ? ["scan", "photo"]
+    : ["scan"];
+
+  async function lookupBarcode(code: string) {
     setPhase({ kind: "looking-up", code });
     try {
       const res = await fetch(`/api/off-barcode/${encodeURIComponent(code)}`);
@@ -77,30 +118,81 @@ function CameraSheetBody({ onPicked }: { onPicked: (food: Food) => void }) {
     }
   }
 
+  async function identifyMeal(blob: Blob) {
+    setPhase({ kind: "identifying" });
+    try {
+      const base64 = await blobToBase64(blob);
+      // Load custom foods at call time so the AI's seed catalog matches
+      // what the user has saved — matches GenerateRecipeDialog's pattern
+      // and keeps macro-calculator from plumbing the list through.
+      const customs = await listCustomFoods().catch(() => []);
+      const res = await fetch("/api/identify-meal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mediaType: "image/jpeg",
+          dietPreference,
+          customFoods: customs.map((c) => ({
+            name: c.name,
+            protein: c.protein,
+            carbs: c.carbs,
+            fat: c.fat,
+            calories: c.calories,
+            category: c.category,
+            subCategory: c.subCategory,
+            brand: c.brand,
+            dietKind: c.dietKind,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(
+          data.error ?? `Identification failed (HTTP ${res.status})`,
+        );
+      }
+      const result = (await res.json()) as ResolvedMealPhoto;
+      if (result.foods.length === 0 && result.unmatched.length === 0) {
+        throw new Error("No foods identified in the photo.");
+      }
+      onMealPhotoResolved(result);
+    } catch (err) {
+      setPhase({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Identification failed.",
+      });
+    }
+  }
+
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Scan barcode</DialogTitle>
+        <DialogTitle>Camera</DialogTitle>
         <DialogDescription>
-          Point your camera at a packaged-food barcode. The product&apos;s
-          per-100g macros come from Open Food Facts.
+          {aiAvailable
+            ? "Scan a barcode or take a photo of a meal — the AI estimates portions, you confirm before adding."
+            : "Scan a packaged-food barcode. Per-100g macros come from Open Food Facts."}
         </DialogDescription>
       </DialogHeader>
 
       <div className="py-2">
-        {phase.kind === "scan" && (
+        {phase.kind === "capture" && (
           <CameraView
             key={resetKey}
-            onBarcode={lookup}
-            onManualBarcode={lookup}
+            modes={modes}
+            onBarcode={lookupBarcode}
+            onManualBarcode={lookupBarcode}
+            onPhoto={identifyMeal}
           />
         )}
 
         {phase.kind === "looking-up" && (
-          <div className="flex flex-col items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>Looking up {phase.code}…</span>
-          </div>
+          <CenteredSpinner label={`Looking up ${phase.code}…`} />
+        )}
+
+        {phase.kind === "identifying" && (
+          <CenteredSpinner label="Identifying foods in your photo…" />
         )}
 
         {phase.kind === "error" && (
@@ -114,15 +206,46 @@ function CameraSheetBody({ onPicked }: { onPicked: (food: Food) => void }) {
               size="sm"
               variant="outline"
               onClick={() => {
-                setPhase({ kind: "scan" });
+                setPhase({ kind: "capture" });
                 setResetKey((k) => k + 1);
               }}
             >
-              Scan again
+              Try again
             </Button>
           </div>
         )}
       </div>
     </>
   );
+}
+
+function CenteredSpinner({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/** Convert a Blob to a bare base64 string (no data: prefix), which is
+ *  what /api/identify-meal expects. FileReader is the most compatible
+ *  path across browsers. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Failed to read frame."));
+        return;
+      }
+      // `data:image/jpeg;base64,...` → strip the prefix.
+      const comma = result.indexOf(",");
+      resolve(comma === -1 ? result : result.slice(comma + 1));
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Failed to read frame."));
+    reader.readAsDataURL(blob);
+  });
 }
