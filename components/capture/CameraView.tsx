@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  decodeOnce,
   detectBarcodeAvailability,
   normalizeManualBarcode,
   startBarcodeStream,
@@ -56,12 +57,28 @@ export function CameraView({
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
   const [mode, setMode] = useState<Mode>(initialMode ?? modes[0] ?? "scan");
   const [photoBusy, setPhotoBusy] = useState(false);
-  // Whether the browser supports BarcodeDetector. `null` until the
-  // first effect tick resolves it. Promoted to state (not a ref) so
-  // the render path can read it without violating react-hooks/refs.
+  // Single-shot "Capture & scan" fallback button state. Lets the user
+  // force a detection when the live loop is starved (autofocus hunting
+  // forever, partial format support, …) without falling all the way
+  // back to manual digit entry.
+  const [manualScanBusy, setManualScanBusy] = useState(false);
+  const [manualScanFailed, setManualScanFailed] = useState(false);
+  // Whether the browser supports BarcodeDetector *and* one of the
+  // product-barcode formats we care about. `null` until the first
+  // effect tick resolves it (detectBarcodeAvailability is async because
+  // it has to call BarcodeDetector.getSupportedFormats() to know).
+  // Promoted to state (not a ref) so the render path can read it
+  // without violating react-hooks/refs.
   const [detectorAvailable, setDetectorAvailable] = useState<boolean | null>(
     null,
   );
+  // Cache the built detector so the mode-flip effect doesn't have to
+  // re-check format support on every flip, and the manual fallback
+  // button can call detect() on a captured frame without rebuilding.
+  // The detector itself is stateless across calls — one per session is
+  // enough.
+  type Detector = Parameters<typeof decodeOnce>[0];
+  const detectorRef = useRef<Detector | null>(null);
   // Latest-ref pattern: keeps the camera-start effect to a one-shot
   // (deps `[]`) while still letting the detect callback see the
   // current `onBarcode` prop if the parent ever swaps it. Avoids
@@ -88,19 +105,26 @@ export function CameraView({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const availability = detectBarcodeAvailability();
-      if (!cancelled) setDetectorAvailable(availability.kind === "supported");
+      // Now async — has to await getSupportedFormats() to know whether
+      // the browser's BarcodeDetector actually supports EAN/UPC and not
+      // just QR. See lib/capture/barcode.ts for the gotcha.
+      const availability = await detectBarcodeAvailability();
+      if (cancelled) return;
+      const supported = availability.kind === "supported";
+      setDetectorAvailable(supported);
+      detectorRef.current = supported ? availability.createDetector() : null;
       // If the user can only scan, and detection isn't supported,
       // surface the manual-entry path immediately. Photo mode still
       // works without BarcodeDetector — only block when scan is the
       // only available mode.
-      if (
-        availability.kind !== "supported" &&
-        modes.length === 1 &&
-        modes[0] === "scan"
-      ) {
-        if (!cancelled)
-          setPhase({ kind: "manual", reason: availability.reason });
+      if (!supported && modes.length === 1 && modes[0] === "scan") {
+        setPhase({
+          kind: "manual",
+          reason:
+            availability.kind === "unsupported"
+              ? availability.reason
+              : "Live scanning isn't supported here.",
+        });
         return;
       }
       const video = videoRef.current;
@@ -132,7 +156,9 @@ export function CameraView({
 
   // Start / stop the barcode loop when mode flips, conditional on
   // detector availability. Camera (above effect) keeps running across
-  // mode changes — only the detect work pauses.
+  // mode changes — only the detect work pauses. Uses the detector
+  // cached in `detectorRef` so we don't have to re-await format
+  // support on every flip.
   useEffect(() => {
     if (phase.kind !== "scanning") return;
     if (mode !== "scan") {
@@ -142,12 +168,11 @@ export function CameraView({
     }
     if (detectorAvailable !== true) return;
     const video = videoRef.current;
-    if (!video) return;
-    const availability = detectBarcodeAvailability();
-    if (availability.kind !== "supported") return;
+    const detector = detectorRef.current;
+    if (!video || !detector) return;
     const stop = startBarcodeStream({
       video,
-      detector: availability.createDetector(),
+      detector,
       onDetect: (code) => {
         stop();
         // Tear down the camera here — we're done.
@@ -158,6 +183,39 @@ export function CameraView({
     stopScanRef.current = stop;
     return stop;
   }, [mode, phase.kind, detectorAvailable]);
+
+  /** Fallback for the case where the live-detect loop never fires —
+   *  user lines up the barcode, taps the button, we capture the
+   *  current frame and run `detect()` on it once. Works even when
+   *  autofocus is hunting and the rAF loop never sees a sharp frame. */
+  async function handleManualScan() {
+    const video = videoRef.current;
+    const detector = detectorRef.current;
+    if (!video || !detector || manualScanBusy) return;
+    setManualScanBusy(true);
+    setManualScanFailed(false);
+    try {
+      // Reuse the same canvas helper the photo flow uses so the frame
+      // is high-resolution (1920×1080 at full quality).
+      const blob = await captureFrame(video, 1);
+      const bitmap = await createImageBitmap(blob);
+      try {
+        const code = await decodeOnce(detector, bitmap);
+        if (code) {
+          cleanupRef.current();
+          onBarcodeRef.current(code);
+          return;
+        }
+        setManualScanFailed(true);
+      } finally {
+        bitmap.close();
+      }
+    } catch {
+      setManualScanFailed(true);
+    } finally {
+      setManualScanBusy(false);
+    }
+  }
 
   async function handleCapturePhoto() {
     const video = videoRef.current;
@@ -258,10 +316,38 @@ export function CameraView({
       {phase.kind === "scanning" &&
         mode === "scan" &&
         detectorAvailable === true && (
-          <p className="flex items-center gap-1.5 text-center text-xs text-muted-foreground">
-            <ScanLine className="h-3.5 w-3.5" />
-            Point the camera at a product barcode — detection is automatic.
-          </p>
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-center text-xs text-muted-foreground">
+              <ScanLine className="h-3.5 w-3.5" />
+              Point the camera at a product barcode — detection is automatic.
+            </p>
+            {/* Manual fallback. Live detection on phones can stall when
+                autofocus hunts and never delivers a sharp frame; this
+                button takes a single high-res snapshot and decodes
+                that. Always visible so users can reach it without
+                guessing whether the loop is broken. */}
+            <div className="flex flex-col items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleManualScan}
+                disabled={manualScanBusy}
+                className="gap-1.5"
+              >
+                <ScanLine className="h-3.5 w-3.5" />
+                {manualScanBusy ? "Reading frame…" : "Tap to capture & scan"}
+              </Button>
+              {manualScanFailed && (
+                <p
+                  role="status"
+                  className="text-[11px] text-muted-foreground"
+                >
+                  No barcode found in that frame. Hold steady and try again.
+                </p>
+              )}
+            </div>
+          </div>
         )}
 
       {showManualEntry && (
