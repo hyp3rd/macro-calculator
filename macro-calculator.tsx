@@ -341,6 +341,19 @@ const MacroCalculator = () => {
         const data = (await res.json()) as { food?: Food };
         if (!data.food) throw new Error("OFF returned no food.");
         handleFoodSelect(data.food);
+        // The food just dropped into the AddFoodForm below — without a
+        // visible cue the user (still staring at the now-closed pair
+        // dialog) thinks nothing happened. Scroll the form into view
+        // and surface a confirmation in the status banner so the next
+        // step (pick portion + meal) is obvious.
+        setMealPlanMessage(
+          `Scanned "${data.food.name}" — pick portion + meal below.`,
+        );
+        if (typeof document !== "undefined") {
+          document
+            .getElementById("add-food-form")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
         return;
       }
       // photo path: fetch the blob from Storage, base64 it, identify.

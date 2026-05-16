@@ -70,7 +70,10 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
   onOpenCamera,
 }) => {
   return (
-    <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+    <section
+      id="add-food-form"
+      className="overflow-hidden rounded-lg border border-border/60 bg-card"
+    >
       {/* Stack vertically on narrow screens (the description + two
           buttons crammed onto one row looks awkward). From sm up,
           restore the side-by-side layout. */}
