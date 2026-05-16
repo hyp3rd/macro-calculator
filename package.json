@@ -1,6 +1,6 @@
 {
   "name": "macro-calculator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Easy to use macro calculator.",
   "engines": {
@@ -59,6 +59,8 @@
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "@vercel/speed-insights": "^2.0.0",
+    "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.22.0",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "embla-carousel-react": "8.6.0",

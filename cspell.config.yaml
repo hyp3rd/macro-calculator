@@ -76,5 +76,6 @@ words:
   - upserts
   - vaul
   - vercel
+  - zxing
 ignoreWords: []
 import: []

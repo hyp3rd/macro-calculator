@@ -3,6 +3,21 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/** Avoid loading the real zxing chunk in unit tests. The runtime can
+ *  resolve the import (the test mock just shorts it out) and we never
+ *  exercise the fallback engine path here — that's a UI concern. */
+vi.mock("@zxing/browser", () => ({
+  BrowserMultiFormatOneDReader: class {
+    decodeFromVideoElement = vi.fn();
+    decodeFromCanvas = vi.fn();
+  },
+}));
+vi.mock("@zxing/library", () => ({
+  BarcodeFormat: { EAN_13: 0, UPC_A: 1, EAN_8: 2 },
+  DecodeHintType: { POSSIBLE_FORMATS: 0, TRY_HARDER: 1 },
+  Result: class {},
+}));
+
 const realDetector = (globalThis as unknown as { BarcodeDetector?: unknown })
   .BarcodeDetector;
 
@@ -22,8 +37,8 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-describe("detectBarcodeAvailability", () => {
-  it("reports 'supported' when BarcodeDetector exists and exposes product-barcode formats", async () => {
+describe("detectBarcodeAvailability — engine selection", () => {
+  it("picks the NATIVE engine when BarcodeDetector exposes product-barcode formats", async () => {
     class FakeDetector {
       detect = vi.fn();
       static async getSupportedFormats() {
@@ -35,14 +50,13 @@ describe("detectBarcodeAvailability", () => {
     ).BarcodeDetector = FakeDetector;
     const { detectBarcodeAvailability } = await freshModule();
     const result = await detectBarcodeAvailability();
-    expect(result.kind).toBe("supported");
-    if (result.kind === "supported") {
-      const detector = result.createDetector();
-      expect(detector).toBeInstanceOf(FakeDetector);
+    expect(result.kind).toBe("ready");
+    if (result.kind === "ready") {
+      expect(result.engine.source).toBe("native");
     }
   });
 
-  it("reports 'unsupported' when BarcodeDetector exists but only supports QR (iOS Safari partial impl)", async () => {
+  it("falls back to the ZXING engine when BarcodeDetector only does QR (iOS Safari)", async () => {
     class FakeDetector {
       detect = vi.fn();
       static async getSupportedFormats() {
@@ -54,120 +68,142 @@ describe("detectBarcodeAvailability", () => {
     ).BarcodeDetector = FakeDetector;
     const { detectBarcodeAvailability } = await freshModule();
     const result = await detectBarcodeAvailability();
-    expect(result.kind).toBe("unsupported");
-    if (result.kind === "unsupported") {
-      expect(result.reason).toMatch(/product barcodes/);
+    expect(result.kind).toBe("ready");
+    if (result.kind === "ready") {
+      expect(result.engine.source).toBe("zxing");
     }
   });
 
-  it("reports 'unsupported' with a readable reason when the API is missing", async () => {
+  it("falls back to ZXING when BarcodeDetector isn't present (Firefox)", async () => {
     delete (globalThis as unknown as { BarcodeDetector?: unknown })
       .BarcodeDetector;
     const { detectBarcodeAvailability } = await freshModule();
     const result = await detectBarcodeAvailability();
-    expect(result.kind).toBe("unsupported");
-    if (result.kind === "unsupported") {
-      expect(result.reason).toMatch(/doesn't support/);
+    expect(result.kind).toBe("ready");
+    if (result.kind === "ready") {
+      expect(result.engine.source).toBe("zxing");
     }
   });
 });
 
-describe("startBarcodeStream", () => {
-  it("fires onDetect on the first successful read (no two-frame requirement)", async () => {
-    const { startBarcodeStream } = await freshModule();
+describe("native engine — startLiveDetect", () => {
+  it("fires onDetect on the first successful read and stops", async () => {
     const code = "5901234123457";
-    const detector = {
-      detect: vi
-        .fn()
-        .mockResolvedValueOnce([{ rawValue: code, format: "ean_13" }]),
-    };
+    let detectCallCount = 0;
+    class FakeDetector {
+      // Resolve once with the code, then keep returning empty arrays
+      // forever. Test asserts only one onDetect even though more frames
+      // would be available.
+      detect = vi.fn(async () => {
+        detectCallCount++;
+        if (detectCallCount === 1) {
+          return [{ rawValue: code, format: "ean_13" }];
+        }
+        return [];
+      });
+      static async getSupportedFormats() {
+        return ["ean_13"];
+      }
+    }
+    (
+      globalThis as unknown as { BarcodeDetector: typeof FakeDetector }
+    ).BarcodeDetector = FakeDetector;
+
+    // Stub rAF to a microtask queue we can drive manually.
+    const rafCallbacks: Array<FrameRequestCallback> = [];
+    const rafSpy = vi.spyOn(globalThis, "requestAnimationFrame");
+    rafSpy.mockImplementation((cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+
+    const { detectBarcodeAvailability } = await freshModule();
+    const avail = await detectBarcodeAvailability();
+    if (avail.kind !== "ready") throw new Error("expected ready");
+
     const onDetect = vi.fn();
     const video = document.createElement("video");
+    const stop = avail.engine.startLiveDetect(video, onDetect);
 
-    // Capture each scheduled tick callback into a queue we drain manually.
-    const queue: Array<() => void> = [];
-    const raf = (cb: () => void) => {
-      queue.push(cb);
-      return 1;
-    };
-
-    startBarcodeStream({ video, detector, onDetect, raf, cancelRaf: () => {} });
-
-    // Drain ticks until we get a detection (max 4 — the first call
-    // should fire immediately).
+    // Drain a handful of rAF callbacks — the first detect call should
+    // fire onDetect and stop the loop.
     for (let i = 0; i < 4 && onDetect.mock.calls.length === 0; i++) {
-      const next = queue.shift();
+      const next = rafCallbacks.shift();
       if (!next) break;
-      next();
+      next(0);
       await Promise.resolve();
       await Promise.resolve();
     }
 
     expect(onDetect).toHaveBeenCalledWith(code);
     expect(onDetect).toHaveBeenCalledTimes(1);
-  });
-
-  it("retries after empty frames until a code is read", async () => {
-    const { startBarcodeStream } = await freshModule();
-    const code = "5901234123457";
-    const detector = {
-      detect: vi
-        .fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ rawValue: code, format: "ean_13" }]),
-    };
-    const onDetect = vi.fn();
-    const video = document.createElement("video");
-
-    const queue: Array<() => void> = [];
-    const raf = (cb: () => void) => {
-      queue.push(cb);
-      return 1;
-    };
-
-    startBarcodeStream({ video, detector, onDetect, raf, cancelRaf: () => {} });
-
-    for (let i = 0; i < 8 && onDetect.mock.calls.length === 0; i++) {
-      const next = queue.shift();
-      if (!next) break;
-      next();
-      await Promise.resolve();
-      await Promise.resolve();
-    }
-
-    expect(onDetect).toHaveBeenCalledWith(code);
-    expect(onDetect).toHaveBeenCalledTimes(1);
+    stop();
+    rafSpy.mockRestore();
   });
 });
 
-describe("decodeOnce", () => {
+describe("native engine — decodeFrame", () => {
   it("returns the rawValue of the first detected code", async () => {
-    const { decodeOnce } = await freshModule();
-    const detector = {
-      detect: vi.fn().mockResolvedValue([
+    class FakeDetector {
+      detect = vi.fn().mockResolvedValue([
         { rawValue: "12345678", format: "ean_8" },
-        { rawValue: "99", format: "ean_8" },
-      ]),
-    };
-    const bitmap = {} as ImageBitmap; // pass-through mock
-    const code = await decodeOnce(detector, bitmap);
+        { rawValue: "99999999", format: "ean_8" },
+      ]);
+      static async getSupportedFormats() {
+        return ["ean_13", "ean_8"];
+      }
+    }
+    (
+      globalThis as unknown as { BarcodeDetector: typeof FakeDetector }
+    ).BarcodeDetector = FakeDetector;
+
+    const { detectBarcodeAvailability } = await freshModule();
+    const avail = await detectBarcodeAvailability();
+    if (avail.kind !== "ready") throw new Error("expected ready");
+
+    const bitmap = {} as ImageBitmap;
+    const code = await avail.engine.decodeFrame(bitmap);
     expect(code).toBe("12345678");
   });
 
   it("returns null when the detector finds nothing", async () => {
-    const { decodeOnce } = await freshModule();
-    const detector = { detect: vi.fn().mockResolvedValue([]) };
+    class FakeDetector {
+      detect = vi.fn().mockResolvedValue([]);
+      static async getSupportedFormats() {
+        return ["ean_13"];
+      }
+    }
+    (
+      globalThis as unknown as { BarcodeDetector: typeof FakeDetector }
+    ).BarcodeDetector = FakeDetector;
+
+    const { detectBarcodeAvailability } = await freshModule();
+    const avail = await detectBarcodeAvailability();
+    if (avail.kind !== "ready") throw new Error("expected ready");
+
     const bitmap = {} as ImageBitmap;
-    const code = await decodeOnce(detector, bitmap);
+    const code = await avail.engine.decodeFrame(bitmap);
     expect(code).toBeNull();
   });
 
   it("swallows detector errors and returns null", async () => {
-    const { decodeOnce } = await freshModule();
-    const detector = { detect: vi.fn().mockRejectedValue(new Error("boom")) };
+    class FakeDetector {
+      detect = vi.fn().mockRejectedValue(new Error("boom"));
+      static async getSupportedFormats() {
+        return ["ean_13"];
+      }
+    }
+    (
+      globalThis as unknown as { BarcodeDetector: typeof FakeDetector }
+    ).BarcodeDetector = FakeDetector;
+
+    const { detectBarcodeAvailability } = await freshModule();
+    const avail = await detectBarcodeAvailability();
+    if (avail.kind !== "ready") throw new Error("expected ready");
+
     const bitmap = {} as ImageBitmap;
-    const code = await decodeOnce(detector, bitmap);
+    const code = await avail.engine.decodeFrame(bitmap);
     expect(code).toBeNull();
   });
 });

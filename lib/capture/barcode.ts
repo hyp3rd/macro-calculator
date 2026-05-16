@@ -1,24 +1,62 @@
-/** Wrapper around the native `BarcodeDetector` API. Returns a small
- *  facade — the UI never touches the spec API directly so unsupported
- *  browsers fall through to a manual-entry input without conditionals
- *  scattered across the component tree.
+/** Barcode scanning engine selector.
  *
- *  Browsers: Chrome / Edge / Opera / Samsung Internet (full),
- *  iOS Safari 16.4+, macOS Safari 14+. Firefox doesn't ship it.
+ *  Two implementations, one interface:
  *
- *  Important gotcha — *and the reason this file looks complicated*:
- *  several mobile browsers (including iOS Safari on real-world builds)
- *  expose `window.BarcodeDetector` but only support `qr_code`. If we
- *  hand the detector our EAN/UPC formats anyway, it silently returns
- *  empty results forever — the loop spins, the scan line animates, and
- *  nothing ever fires. So we ask the browser which formats it actually
- *  supports via the static `getSupportedFormats()` method (it's async,
- *  hence the async surface here) and only call ourselves "supported"
- *  when at least one product-barcode format is on the list. */
+ *  1. **Native** — `window.BarcodeDetector` when the browser actually
+ *     supports EAN/UPC/EAN-8 (`getSupportedFormats()` includes them).
+ *     Hardware-accelerated, basically free. Android Chrome, macOS
+ *     Safari, Edge.
+ *
+ *  2. **zxing** — `@zxing/browser` (pure JS). Slower but works on any
+ *     browser with a `<canvas>`. Loaded *dynamically* the first time
+ *     it's needed, so users on browsers with a working native detector
+ *     never pay the ~80 KB bundle cost.
+ *
+ *  Why a fallback at all: iOS Safari ships a `BarcodeDetector` that
+ *  only supports `qr_code` on many real-world builds. Without zxing we
+ *  end up scanning forever and reading nothing. Firefox doesn't ship
+ *  the API at all. */
+import type { Result } from "@zxing/library";
 
-/** Subset of the spec we actually use. Avoids pulling DOM types we
- *  don't have configured. */
-interface BarcodeDetectorLike {
+/** Common consumer-product barcode formats. EAN-13/UPC-A cover ~all of
+ *  packaged groceries; EAN-8 for very small packages. We deliberately
+ *  skip QR (it's a link, not a product) and Code 128 (warehouse stuff). */
+const FORMATS = ["ean_13", "upc_a", "ean_8"] as const;
+
+/** Frame sources accepted by `decodeFrame`. Internally we coerce
+ *  everything to a canvas so both engines see the same input. */
+export type FrameSource =
+  | HTMLCanvasElement
+  | HTMLImageElement
+  | ImageBitmap
+  | Blob;
+
+/** Unified engine surface — CameraView only ever sees this. */
+export type BarcodeEngine = {
+  /** Whether this engine is native (BarcodeDetector) or zxing.
+   *  Exposed mainly so the UI can show a tiny "using your phone's
+   *  built-in scanner" / "using fallback decoder" hint if it wants
+   *  to; functionally irrelevant. */
+  readonly source: "native" | "zxing";
+  /** Subscribe to live frames on an already-playing video element and
+   *  fire `onDetect` once when the first product barcode is read.
+   *  Returns a cleanup that stops the loop. */
+  startLiveDetect(
+    video: HTMLVideoElement,
+    onDetect: (code: string) => void,
+  ): () => void;
+  /** One-shot decode of a captured frame (used by the "Tap to capture
+   *  & scan" fallback button). Resolves to the decoded digits or null. */
+  decodeFrame(source: FrameSource): Promise<string | null>;
+};
+
+export type BarcodeAvailability =
+  | { kind: "ready"; engine: BarcodeEngine }
+  | { kind: "unsupported"; reason: string };
+
+// ─── Native ──────────────────────────────────────────────────────────
+
+interface NativeDetector {
   detect(
     source:
       | HTMLVideoElement
@@ -30,37 +68,22 @@ interface BarcodeDetectorLike {
       | Blob,
   ): Promise<Array<{ rawValue: string; format: string }>>;
 }
-interface BarcodeDetectorCtor {
-  new (options?: { formats?: string[] }): BarcodeDetectorLike;
+interface NativeDetectorCtor {
+  new (options?: { formats?: string[] }): NativeDetector;
   getSupportedFormats?: () => Promise<string[]>;
 }
 
-/** Common consumer-product barcode formats. EAN-13/UPC-A cover ~all of
- *  packaged groceries; EAN-8 for very small packages. We deliberately
- *  skip QR (it's a link, not a product) and Code 128 (warehouse stuff). */
-const FORMATS = ["ean_13", "upc_a", "ean_8"] as const;
-
-export type BarcodeAvailability =
-  | { kind: "supported"; createDetector: () => BarcodeDetectorLike }
-  | { kind: "unsupported"; reason: string };
-
-/** Per-tab cache of the supported-formats lookup. The browser doesn't
- *  change its mind about which formats it can read mid-session, so one
- *  network/native trip is enough. */
 let supportedFormatsPromise: Promise<readonly string[]> | null = null;
 
-function fetchSupportedFormats(): Promise<readonly string[]> {
+function fetchNativeSupportedFormats(): Promise<readonly string[]> {
   if (supportedFormatsPromise) return supportedFormatsPromise;
   if (typeof window === "undefined") {
     supportedFormatsPromise = Promise.resolve([]);
     return supportedFormatsPromise;
   }
-  const Ctor = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor })
+  const Ctor = (window as unknown as { BarcodeDetector?: NativeDetectorCtor })
     .BarcodeDetector;
   if (!Ctor || typeof Ctor.getSupportedFormats !== "function") {
-    // Constructor missing, or older browser that doesn't expose the
-    // static method. Treat as "no formats" — caller falls back to
-    // manual entry.
     supportedFormatsPromise = Promise.resolve([]);
     return supportedFormatsPromise;
   }
@@ -68,129 +91,195 @@ function fetchSupportedFormats(): Promise<readonly string[]> {
   return supportedFormatsPromise;
 }
 
-/** Async; awaited from the React effects in CameraView. Safe to call
- *  from SSR (returns "unsupported" because `window` is absent). */
+function nativeEngine(detector: NativeDetector): BarcodeEngine {
+  return {
+    source: "native",
+    startLiveDetect(video, onDetect) {
+      let handle = 0;
+      let stopped = false;
+      const tick = async () => {
+        if (stopped) return;
+        try {
+          const results = await detector.detect(video);
+          const first = results[0]?.rawValue;
+          if (first) {
+            stopped = true;
+            onDetect(first);
+            return;
+          }
+        } catch {
+          // Detector throws when the video isn't ready yet (no first
+          // frame painted). Try again next animation frame.
+        }
+        if (!stopped) handle = requestAnimationFrame(tick);
+      };
+      handle = requestAnimationFrame(tick);
+      return () => {
+        stopped = true;
+        cancelAnimationFrame(handle);
+      };
+    },
+    async decodeFrame(source) {
+      try {
+        // Native detector accepts all our frame source types directly.
+        const results = await detector.detect(
+          source as Parameters<NativeDetector["detect"]>[0],
+        );
+        return results[0]?.rawValue ?? null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+// ─── zxing fallback ──────────────────────────────────────────────────
+
+/** Lazy-loaded zxing reader instance. The actual module import happens
+ *  inside `loadZxingReader` so users on browsers with a working native
+ *  detector never pull in the 80 KB chunk. */
+let zxingReaderPromise: Promise<{
+  reader: import("@zxing/browser").BrowserMultiFormatOneDReader;
+  // Imported lazily so we can use the types without the runtime cost
+  // up-front. The Map below is built from these in `loadZxingReader`.
+  Result: typeof import("@zxing/library").Result;
+}> | null = null;
+
+async function loadZxingReader() {
+  if (!zxingReaderPromise) {
+    zxingReaderPromise = (async () => {
+      const [{ BrowserMultiFormatOneDReader }, lib] = await Promise.all([
+        import("@zxing/browser"),
+        import("@zxing/library"),
+      ]);
+      const hints = new Map();
+      hints.set(lib.DecodeHintType.POSSIBLE_FORMATS, [
+        lib.BarcodeFormat.EAN_13,
+        lib.BarcodeFormat.UPC_A,
+        lib.BarcodeFormat.EAN_8,
+      ]);
+      // Throw fewer false-negatives on slightly blurry frames.
+      hints.set(lib.DecodeHintType.TRY_HARDER, true);
+      return {
+        reader: new BrowserMultiFormatOneDReader(hints),
+        Result: lib.Result,
+      };
+    })();
+  }
+  return zxingReaderPromise;
+}
+
+async function zxingEngine(): Promise<BarcodeEngine> {
+  const { reader } = await loadZxingReader();
+  return {
+    source: "zxing",
+    startLiveDetect(video, onDetect) {
+      let stopped = false;
+      // decodeFromVideoElement subscribes to video frames and calls our
+      // callback on every decode attempt (with either a Result or an
+      // error). Returns a Promise<IScannerControls> we hold onto so we
+      // can stop the loop.
+      const controlsPromise = reader
+        .decodeFromVideoElement(video, (result?: Result) => {
+          if (stopped) return;
+          if (result) {
+            stopped = true;
+            onDetect(result.getText());
+            void controlsPromise.then((c) => c && c.stop()).catch(() => {});
+          }
+          // Ignore the error path — zxing reports NotFoundException on
+          // every frame that doesn't contain a code, which is the
+          // expected steady state.
+        })
+        .catch(() => null);
+      return () => {
+        stopped = true;
+        void controlsPromise.then((c) => c && c.stop()).catch(() => {});
+      };
+    },
+    async decodeFrame(source) {
+      const canvas = await toCanvas(source);
+      try {
+        const result = reader.decodeFromCanvas(canvas);
+        return result.getText();
+      } catch {
+        // zxing throws NotFoundException when nothing decodes. That's
+        // expected — we treat it as "no code" rather than an error.
+        return null;
+      }
+    },
+  };
+}
+
+async function toCanvas(source: FrameSource): Promise<HTMLCanvasElement> {
+  if (source instanceof HTMLCanvasElement) return source;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+  if (source instanceof HTMLImageElement) {
+    canvas.width = source.naturalWidth;
+    canvas.height = source.naturalHeight;
+    ctx.drawImage(source, 0, 0);
+    return canvas;
+  }
+  if (source instanceof ImageBitmap) {
+    canvas.width = source.width;
+    canvas.height = source.height;
+    ctx.drawImage(source, 0, 0);
+    return canvas;
+  }
+  // Blob → ImageBitmap → canvas.
+  const bitmap = await createImageBitmap(source);
+  try {
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    ctx.drawImage(bitmap, 0, 0);
+    return canvas;
+  } finally {
+    bitmap.close();
+  }
+}
+
+// ─── Public selector ──────────────────────────────────────────────────
+
+/** Returns the best engine the browser can offer. Native if it
+ *  actually supports product barcodes; zxing otherwise. SSR-safe
+ *  (returns "unsupported" before hydration). */
 export async function detectBarcodeAvailability(): Promise<BarcodeAvailability> {
   if (typeof window === "undefined") {
     return { kind: "unsupported", reason: "Server-side render" };
   }
-  const Ctor = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor })
+  // 1) Try native.
+  const Ctor = (window as unknown as { BarcodeDetector?: NativeDetectorCtor })
     .BarcodeDetector;
-  if (!Ctor) {
-    return {
-      kind: "unsupported",
-      reason: "Your browser doesn't support live barcode scanning.",
-    };
-  }
-  const supported = await fetchSupportedFormats();
-  const usable = FORMATS.filter((f) => supported.includes(f));
-  if (usable.length === 0) {
-    return {
-      kind: "unsupported",
-      // Phrased to land between "your browser is broken" (we don't
-      // know that) and "you typed the wrong thing" (they didn't yet).
-      // iOS Safari users land here today.
-      reason:
-        "Your browser's barcode reader doesn't support product barcodes. Type the digits below.",
-    };
-  }
-  return {
-    kind: "supported",
-    createDetector: () => new Ctor({ formats: [...usable] }),
-  };
-}
-
-/** One-shot detect on a single frame source. Used by the "Capture &
- *  scan" fallback button — bypasses the rAF loop entirely, so it works
- *  even when the live-detect path is starved (e.g. autofocus is
- *  hunting and never delivers a sharp frame). Returns the decoded
- *  digits or `null` if nothing recognized. */
-export async function decodeOnce(
-  detector: BarcodeDetectorLike,
-  source:
-    | HTMLVideoElement
-    | HTMLCanvasElement
-    | HTMLImageElement
-    | ImageBitmap
-    | ImageData
-    | Blob,
-): Promise<string | null> {
-  try {
-    const results = await detector.detect(source);
-    return results[0]?.rawValue ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export type BarcodeStreamOptions = {
-  video: HTMLVideoElement;
-  onDetect: (code: string) => void;
-  /** Test hook — defaults to the real API. */
-  detector?: BarcodeDetectorLike;
-  /** Test hook — defaults to `requestAnimationFrame`. Vitest fake
-   *  timers don't patch rAF, so tests inject this. */
-  raf?: (cb: () => void) => number;
-  /** Test hook — defaults to `cancelAnimationFrame`. */
-  cancelRaf?: (handle: number) => void;
-};
-
-/** Start a detection loop on the given video element. Fires `onDetect`
- *  on the *first* successful read and stops. Returns a cleanup function
- *  the caller invokes on unmount or after handling the code.
- *
- *  Previously this required two consecutive frames with the same code
- *  to debounce false positives. In practice that made detection feel
- *  broken on phones: the camera autofocus hunts, frames blur, and the
- *  detector reads the code once but rarely twice in a row. Product
- *  barcodes (EAN/UPC) carry a checksum the detector already validates
- *  before returning a `rawValue`, so a single positive read is safe to
- *  trust. */
-export function startBarcodeStream(opts: BarcodeStreamOptions): () => void {
-  const raf = opts.raf ?? window.requestAnimationFrame.bind(window);
-  const cancelRaf = opts.cancelRaf ?? window.cancelAnimationFrame.bind(window);
-  // Detector creation is now async (must consult getSupportedFormats),
-  // so we accept a pre-built detector from the caller instead of
-  // building one here. The CameraView always passes one in; the
-  // fallback below exists only for callers that already know a
-  // detector is available.
-  if (!opts.detector) {
-    throw new Error(
-      "startBarcodeStream requires a detector — build one with detectBarcodeAvailability() first.",
-    );
-  }
-  const detector = opts.detector;
-
-  let handle = 0;
-  let stopped = false;
-
-  const tick = async () => {
-    if (stopped) return;
-    try {
-      const results = await detector.detect(opts.video);
-      const first = results[0]?.rawValue;
-      if (first) {
-        stopped = true;
-        opts.onDetect(first);
-        return;
-      }
-    } catch {
-      // Detector throws when the video stream isn't ready yet (e.g.,
-      // before the first frame paints). Just try again next frame.
+  if (Ctor) {
+    const supported = await fetchNativeSupportedFormats();
+    const usable = FORMATS.filter((f) => supported.includes(f));
+    if (usable.length > 0) {
+      return {
+        kind: "ready",
+        engine: nativeEngine(new Ctor({ formats: [...usable] })),
+      };
     }
-    if (!stopped) handle = raf(tick);
-  };
-
-  handle = raf(tick);
-  return () => {
-    stopped = true;
-    cancelRaf(handle);
-  };
+  }
+  // 2) Native missing or only does QR — fall back to zxing.
+  try {
+    const engine = await zxingEngine();
+    return { kind: "ready", engine };
+  } catch (err) {
+    return {
+      kind: "unsupported",
+      reason:
+        err instanceof Error
+          ? `Couldn't load the barcode decoder: ${err.message}`
+          : "Couldn't load the barcode decoder.",
+    };
+  }
 }
 
-/** Validate a user-typed barcode (for the manual-entry fallback on
- *  unsupported browsers). Returns the cleaned code or `null` if
- *  invalid. Accepts EAN-8/12/13/14, the practical product range. */
+/** Validate a user-typed barcode (manual-entry input). Returns the
+ *  cleaned code or `null` if invalid. Accepts EAN-8/12/13/14, the
+ *  practical product range. */
 export function normalizeManualBarcode(input: string): string | null {
   const digits = input.replace(/\D/g, "");
   if (digits.length < 8 || digits.length > 14) return null;
