@@ -11,6 +11,7 @@ ignorePaths:
 dictionaryDefinitions: []
 dictionaries: []
 words:
+  - acks
   - aren
   - autoincrements
   - banchan
@@ -23,6 +24,7 @@ words:
   - Cramer's
   - creds
   - Crème
+  - cutover
   - Dedup
   - dedups
   - desaturated
@@ -42,6 +44,7 @@ words:
   - intolerances
   - Jeor
   - licious
+  - lifecycles
   - macronutrient
   - macrotask
   - magiclink
@@ -62,7 +65,9 @@ words:
   - playsinline
   - plpgsql
   - Postgrest
+  - pubname
   - qrcode
+  - schemaname
   - sparkline
   - summarise
   - supabase
@@ -72,6 +77,7 @@ words:
   - Turbopack
   - tyramine
   - Unconfigured
+  - unsub
   - upserted
   - upserts
   - vaul

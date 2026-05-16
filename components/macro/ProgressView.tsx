@@ -18,6 +18,7 @@ import {
 } from "@/lib/db";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
+import { useDataRev } from "@/lib/sync/data-bus";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Check, LineChart, TrendingDown, TrendingUp } from "lucide-react";
@@ -53,6 +54,11 @@ export function ProgressView({ targetCalories }: Props) {
   const [weights, setWeights] = useState<WeightEntry[] | null>(null);
   const [logs, setLogs] = useState<DailyLog[] | null>(null);
   const [rev, setRev] = useState(0);
+  // Refresh when a peer device writes a weight entry or a daily log
+  // (both of which feed the charts here). Each bus has its own rev
+  // counter; both feed into the same load effect.
+  const weightRev = useDataRev("weightHistory");
+  const dailyLogsRev = useDataRev("dailyLogs");
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +77,7 @@ export function ProgressView({ targetCalories }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [rev]);
+  }, [rev, weightRev, dailyLogsRev]);
 
   const refresh = () => setRev((r) => r + 1);
 

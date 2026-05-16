@@ -54,6 +54,26 @@ export function SyncStatusPill() {
     );
   }
 
+  // Conflict wins over "Pending" — the user *needs* to see that one or
+  // more writes were rejected by a peer device's prior edit, otherwise
+  // they'd just see "Pending" and assume the sync hasn't run yet. The
+  // dirty rows that triggered the conflict are still in pending; the
+  // retry will pull fresh + re-push them.
+  if (status.state === "conflict") {
+    const n = status.count;
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(styles, "text-amber-700 dark:text-amber-400")}
+        title={`${n} change${n === 1 ? "" : "s"} from this device weren't saved — another device edited the same row${n === 1 ? "" : "s"} first. Click to retry.`}
+      >
+        <AlertTriangle className="h-3 w-3" />
+        Conflict ({n})
+      </button>
+    );
+  }
+
   if (hasPending) {
     const titleSuffix =
       status.state === "synced"

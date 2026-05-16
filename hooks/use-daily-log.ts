@@ -4,6 +4,7 @@ import type { Meal } from "@/components/macro/types";
 import { getDailyLog, saveDailyLog } from "@/lib/db";
 import { reportStorageError, reportStorageOk } from "@/lib/storage-status";
 import { bumpPending } from "@/lib/sync-status";
+import { useDataRev } from "@/lib/sync/data-bus";
 import { useEffect, useState } from "react";
 
 const WRITE_DEBOUNCE_MS = 500;
@@ -29,6 +30,12 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
   // we synchronously reset isHydrated to false at the top of the effect.
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const isHydrated = loadedFor === date && date !== "";
+  // Re-runs the load effect when a peer device's daily-log change
+  // arrives via realtime. The hook reads whatever date is currently
+  // active; if the peer changed a *different* day's log, the IDB
+  // re-read for the current day returns the same data and React
+  // diffs it as a no-op.
+  const dailyLogsRev = useDataRev("dailyLogs");
 
   useEffect(() => {
     if (date === "") return; // SSR snapshot; skip until hydrate.
@@ -48,7 +55,7 @@ export function useDailyLog(date: string, defaultMeals: Meal[]): DailyLogState {
     return () => {
       cancelled = true;
     };
-  }, [date, defaultMeals]);
+  }, [date, defaultMeals, dailyLogsRev]);
 
   useEffect(() => {
     if (!isHydrated) return;
