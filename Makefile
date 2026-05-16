@@ -69,6 +69,9 @@ pre-commit: ## Run a curated subset of pre-commit hooks (requires `pre-commit` o
 	pre-commit run -a yamllint
 	pre-commit run -a cspell
 
+patch-version:
+	$(NPM) version patch
+
 # ---- Composite -------------------------------------------------------
 # Order matters: format-check first (instant), lint next
 # (fastest of the slow checks), build last (longest). Each
@@ -77,4 +80,4 @@ pre-commit: ## Run a curated subset of pre-commit hooks (requires `pre-commit` o
 ci: pre-commit fmt-check lint typecheck test sec build ## Run every quality gate.
 
 .PHONY: build ci dev e2e fmt fmt-check help lint lint-fix \
-	pre-commit sec start test test-watch typecheck
+	pre-commit sec start test test-watch typecheck patch-version
