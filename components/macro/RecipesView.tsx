@@ -27,6 +27,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Share2,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import {
 } from "@dnd-kit/sortable";
 import { GenerateRecipeDialog } from "./GenerateRecipeDialog";
 import { RecipeForm, type RecipeDraft } from "./RecipeForm";
+import { ShareRecipeDialog } from "./ShareRecipeDialog";
 import { SortControl, sortByMode, useSortMode } from "./SortControl";
 import { useSortableRow } from "./useSortableRow";
 
@@ -72,6 +74,7 @@ export function RecipesView({ profile }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [editing, setEditing] = useState<RecipeDraft | undefined>(undefined);
+  const [sharing, setSharing] = useState<Recipe | null>(null);
   const [sortMode, setSortMode] = useSortMode("sort:recipes", "recent");
   // Drag distance gate keeps the click handlers on the row (Edit /
   // Delete buttons) working even when the row is sortable — click on
@@ -292,6 +295,7 @@ export function RecipesView({ profile }: Props) {
                     setEditing(r);
                     setFormOpen(true);
                   }}
+                  onShare={() => setSharing(r)}
                   onDelete={() => handleDelete(r.id)}
                 />
               ))}
@@ -318,6 +322,13 @@ export function RecipesView({ profile }: Props) {
           setFormOpen(true);
         }}
       />
+      <ShareRecipeDialog
+        open={sharing !== null}
+        onOpenChange={(o) => {
+          if (!o) setSharing(null);
+        }}
+        recipe={sharing}
+      />
     </div>
   );
 }
@@ -326,11 +337,13 @@ function SortableRecipeRow({
   recipe,
   draggable,
   onEdit,
+  onShare,
   onDelete,
 }: {
   recipe: Recipe & { sortOrder?: number };
   draggable: boolean;
   onEdit: () => void;
+  onShare: () => void;
   onDelete: () => void;
 }) {
   const { setNodeRef, style, handleProps } = useSortableRow(
@@ -393,6 +406,23 @@ function SortableRecipeRow({
         aria-label={`Edit ${recipe.name}`}
       >
         <Pencil className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={`h-9 w-9 sm:h-8 sm:w-8 ${
+          recipe.shareSlug ? "text-foreground" : "text-muted-foreground"
+        }`}
+        onClick={onShare}
+        aria-label={
+          recipe.shareSlug
+            ? `Manage share for ${recipe.name}`
+            : `Share ${recipe.name}`
+        }
+        title={recipe.shareSlug ? "Shared — click to manage" : "Share"}
+      >
+        <Share2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
       </Button>
       <Button
         type="button"

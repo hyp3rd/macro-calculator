@@ -11,7 +11,9 @@ ignorePaths:
 dictionaryDefinitions: []
 dictionaries: []
 words:
+  - ABCDEFGHJKLMNPQRSTUVWXY
   - acks
+  - affordances
   - aren
   - autoincrements
   - banchan
@@ -45,6 +47,7 @@ words:
   - harissa
   - hasn
   - IDBP
+  - idempotently
   - inbucket
   - indexeddb
   - inlines
@@ -64,6 +67,7 @@ words:
   - noeng
   - nonbinary
   - nums
+  - Olllll
   - openfoodfacts
   - pangasius
   - parentheticals
@@ -100,6 +104,7 @@ words:
   - upserts
   - vaul
   - vercel
+  - Zabcdefghijkmnpqrstuvwxyz
   - zxing
 ignoreWords: []
 import: []

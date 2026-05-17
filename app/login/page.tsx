@@ -6,13 +6,71 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { ArrowLeft, ClipboardPaste, Mail } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 type Stage = { kind: "request" } | { kind: "verify"; email: string };
 
+/** Only allow same-origin paths so a hostile `?next=https://evil.com`
+ *  can't redirect away from the app post-login. Empty / missing /
+ *  not-starting-with-`/` all fall back to home. */
+function safeNext(raw: string | null): string {
+  if (!raw) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
+/** Wrapper. `useSearchParams` triggers a static-prerender bailout in
+ *  Next.js 15+, so the part of the page that reads it lives inside a
+ *  Suspense boundary. The fallback matches the layout shell so there's
+ *  no visible flicker — only the form's "submit" target depends on
+ *  the param. */
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginShell configured={isSupabaseConfigured()} />}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginShell({ configured }: { configured: boolean }) {
+  // Used as the Suspense fallback — same chrome as the real form so
+  // there's no layout shift between fallback and ready states.
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-sm space-y-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to app
+          </Link>
+          <div className="space-y-1">
+            <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
+            <p className="text-sm text-muted-foreground">
+              We&apos;ll email you a one-time code. No passwords.
+            </p>
+          </div>
+          {!configured && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+              Supabase isn&apos;t configured for this build. See README →
+              Supabase setup to add the env vars.
+            </div>
+          )}
+        </div>
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
+function LoginPageInner() {
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
   const [stage, setStage] = useState<Stage>({ kind: "request" });
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -46,11 +104,14 @@ export default function LoginPage() {
           shouldCreateUser: true,
           // Click-the-link fallback: Supabase's verify endpoint will
           // redirect here with `?code=…` after PKCE verification, and
-          // /auth/callback exchanges the code for a session. Only works
-          // when the user clicks the link on the same browser they
-          // requested it from (PKCE verifier lives in cookies on this
-          // origin). The numeric-code path below is the cross-device path.
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          // /auth/callback exchanges the code for a session. The
+          // `next` param round-trips so visitors who arrived from
+          // `/r/<slug>?next=...` land back on the recipe page after
+          // signing in. Only works when the user clicks the link on
+          // the same browser they requested it from (PKCE verifier
+          // lives in cookies on this origin). The numeric-code path
+          // below is the cross-device path.
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
         },
       });
       if (e) throw e;
@@ -112,8 +173,10 @@ export default function LoginPage() {
       });
       if (e) throw e;
       // Hard navigation so the proxy sees the new session cookie on the
-      // very next request and rehydrates everywhere.
-      window.location.assign("/");
+      // very next request and rehydrates everywhere. Honours `?next=`
+      // so visitors arriving from a shared resource (e.g. `/r/<slug>`)
+      // land back on it after sign-in.
+      window.location.assign(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to verify code.");
       setBusy(false);
