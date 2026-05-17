@@ -206,11 +206,12 @@ function Form({
       return;
     }
     // Validate the optional macro-breakdown against the main macros.
-    // The four reasonable invariants: sugars + fiber ≤ carbs (both are
-    // *subsets* of total carbs), added ≤ total sugars, and the four
-    // fat subtypes sum to no more than total fat. The "≤" margin
-    // tolerates small rounding errors (0.5 g) since label data is
-    // notoriously imprecise.
+    // The invariants: sugars ≤ carbs (sugars are a subset of total
+    // carbs), addedSugars ≤ total sugars, and the four fat subtypes
+    // sum to no more than total fat. Fiber is intentionally NOT
+    // checked against carbs — EU labels exclude fiber from the carbs
+    // total, so fiber > carbs is correct for many real products. The
+    // "≤" margin tolerates small rounding errors (0.5 g).
     const breakdownError = validateBreakdown(draft);
     if (breakdownError) {
       setError(breakdownError);
@@ -473,14 +474,21 @@ function OptionalNumberField({
 
 /** Per-100g sub-macro invariants the form enforces on save:
  *
- *    sugars + fiber  ≤  carbs    (both are subsets of total carbs)
+ *    sugars          ≤  carbs    (sugars are a subset of total carbs)
  *    addedSugars     ≤  sugars   (added is a subset of total sugars)
  *    sat+trans+mono+poly ≤ fat   (the four subtypes sum to ≤ total fat)
  *
- *  Empty (= unknown) sub-macros are skipped in their sum. A 0.5 g
- *  margin is allowed to absorb label-rounding error — packaged-food
- *  labels routinely round each line to the nearest gram so the parts
- *  can legitimately overshoot the whole by a small fraction.
+ *  **Fiber is intentionally NOT enforced against carbs.** EU nutrition
+ *  labels report "Carbohydrate" excluding fiber, so high-fiber foods
+ *  (bran cereals, psyllium, etc.) legitimately show fiber > carbs.
+ *  US labels include fiber in total carbs, so for those products
+ *  fiber ≤ carbs would hold — but we can't tell which convention a
+ *  given label uses, so we don't gate on it.
+ *
+ *  Empty (= unknown) sub-macros are skipped. A 0.5 g margin absorbs
+ *  label-rounding error — packaged-food labels routinely round each
+ *  line to the nearest gram so the parts can legitimately overshoot
+ *  the whole by a small fraction.
  *
  *  Exported so unit tests can pin the boundary conditions. */
 export function validateBreakdown(draft: {
@@ -504,8 +512,16 @@ export function validateBreakdown(draft: {
   const mono = num(draft.monoFat);
   const poly = num(draft.polyFat);
 
-  if (sugars + fiber > draft.carbs + TOLERANCE) {
-    return `Sugars (${sugars} g) + fiber (${fiber} g) can't exceed total carbs (${draft.carbs} g).`;
+  // Sugars are a subset of total carbs by definition — enforce the cap.
+  // Fiber is NOT enforced against carbs: EU nutrition labels report
+  // "Carbohydrate" excluding fiber, so for many real products fiber >
+  // carbs is correct. US labels include fiber in total carbs, so for
+  // those products fiber ≤ carbs. We can't tell which labeling
+  // convention a given product uses, so we don't gate on it — the
+  // sugars ≤ carbs check still catches the obviously-wrong cases
+  // (most data-entry typos collapse there).
+  if (sugars > draft.carbs + TOLERANCE) {
+    return `Sugars (${sugars} g) can't exceed total carbs (${draft.carbs} g).`;
   }
   if (added > sugars + TOLERANCE) {
     // Two flavors of this error so the message is specific.
@@ -514,6 +530,10 @@ export function validateBreakdown(draft: {
     }
     return `Added sugars (${added} g) can't exceed total sugars (${sugars} g).`;
   }
+  // Silence the unused-binding lint now that fiber doesn't participate
+  // in a check (kept in the destructuring above for symmetry + future
+  // extension).
+  void fiber;
   const fatSum = sat + trans + mono + poly;
   if (fatSum > draft.fat + TOLERANCE) {
     return `Saturated + trans + mono- + poly-unsat (${fatSum} g) can't exceed total fat (${draft.fat} g).`;
