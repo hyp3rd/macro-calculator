@@ -27,6 +27,13 @@ export type OFFHit = {
     proteins_100g?: number;
     carbohydrates_100g?: number;
     fat_100g?: number;
+    sugars_100g?: number;
+    "sugars-added_100g"?: number;
+    fiber_100g?: number;
+    "saturated-fat_100g"?: number;
+    "trans-fat_100g"?: number;
+    "monounsaturated-fat_100g"?: number;
+    "polyunsaturated-fat_100g"?: number;
   };
 };
 
@@ -66,6 +73,13 @@ export function hitToFood(h: OFFHit): Food | null {
       calories ??
       Math.round((protein ?? 0) * 4 + (carbs ?? 0) * 4 + (fat ?? 0) * 9),
     brand: firstBrand(h.brands),
+    sugars: num(n.sugars_100g),
+    addedSugars: num(n["sugars-added_100g"]),
+    fiber: num(n.fiber_100g),
+    saturatedFat: num(n["saturated-fat_100g"]),
+    transFat: num(n["trans-fat_100g"]),
+    monoFat: num(n["monounsaturated-fat_100g"]),
+    polyFat: num(n["polyunsaturated-fat_100g"]),
   };
 }
 

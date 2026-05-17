@@ -6,6 +6,7 @@ import {
   activityMultipliers,
   goalDirection,
 } from "@/components/macro/types";
+import type { MacroBreakdown, Meal } from "@/components/macro/types";
 
 /** Pure computation of BMR, TDEE, target calories, daily delta, and per-macro
  * gram targets from the user's profile. Uses Mifflin-St Jeor for BMR. The
@@ -92,4 +93,52 @@ export function computeMacros(p: PersonalInfo): CalculatedValues {
     carbs: Math.round((targetCalories * carbRatio) / 4),
     fat: Math.round((targetCalories * fatRatio) / 9),
   };
+}
+
+/** Sum the optional macro-breakdown fields across every FoodItem in the
+ *  passed meals. Only includes a key in the output when at least one
+ *  food contributed a value — otherwise the display layer would render
+ *  a misleading "0g" for fields where we have no information.
+ *
+ *  Foods that don't carry sub-macros (seed catalog rows, older custom
+ *  foods saved before the breakdown migration, items added through
+ *  paths that don't yet propagate the per-100g scaling) simply skip
+ *  the sum for those fields. */
+export function aggregateMacroBreakdown(meals: Meal[]): MacroBreakdown {
+  const totals: Record<keyof MacroBreakdown, number> = {
+    sugars: 0,
+    addedSugars: 0,
+    fiber: 0,
+    saturatedFat: 0,
+    transFat: 0,
+    monoFat: 0,
+    polyFat: 0,
+  };
+  const seen: Record<keyof MacroBreakdown, boolean> = {
+    sugars: false,
+    addedSugars: false,
+    fiber: false,
+    saturatedFat: false,
+    transFat: false,
+    monoFat: false,
+    polyFat: false,
+  };
+  for (const meal of meals) {
+    for (const food of meal.foods) {
+      for (const key of Object.keys(totals) as Array<keyof MacroBreakdown>) {
+        const v = food[key];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          totals[key] += v;
+          seen[key] = true;
+        }
+      }
+    }
+  }
+  const out: MacroBreakdown = {};
+  for (const key of Object.keys(totals) as Array<keyof MacroBreakdown>) {
+    if (seen[key]) {
+      out[key] = Math.round(totals[key] * 10) / 10;
+    }
+  }
+  return out;
 }

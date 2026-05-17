@@ -19,6 +19,17 @@ type OFFHit = {
     proteins_100g?: number;
     carbohydrates_100g?: number;
     fat_100g?: number;
+    // Optional macro-breakdown fields. Many OFF entries don't fill
+    // these — the mapper treats `undefined` as "unknown" rather than
+    // zero so the UI can hide the row instead of showing misleading
+    // "0g" values.
+    sugars_100g?: number;
+    "sugars-added_100g"?: number;
+    fiber_100g?: number;
+    "saturated-fat_100g"?: number;
+    "trans-fat_100g"?: number;
+    "monounsaturated-fat_100g"?: number;
+    "polyunsaturated-fat_100g"?: number;
   };
 };
 
@@ -89,6 +100,15 @@ function normalizeOFFHit(h: OFFHit): Food | null {
     fat: f100,
     calories: calories ?? p100 * 4 + c100 * 4 + f100 * 9,
     brand,
+    // Macro-breakdown — undefined when OFF didn't supply it; the UI
+    // hides rows where every food's value is undefined.
+    sugars: num(n.sugars_100g),
+    addedSugars: num(n["sugars-added_100g"]),
+    fiber: num(n.fiber_100g),
+    saturatedFat: num(n["saturated-fat_100g"]),
+    transFat: num(n["trans-fat_100g"]),
+    monoFat: num(n["monounsaturated-fat_100g"]),
+    polyFat: num(n["polyunsaturated-fat_100g"]),
   };
 }
 

@@ -44,6 +44,14 @@ export type Versioned = {
   serverUpdatedAt?: string | null;
 };
 
+/** Optional per-row position used by the "custom" sort mode in the
+ *  My Foods / Recipes / Templates views. A `double precision` (number)
+ *  rather than an integer so inserting between two rows is just the
+ *  average of the neighbors' values — no renumber cascade. Nullable
+ *  for rows the user hasn't manually positioned yet; those sort by
+ *  `createdAt` as the fallback. */
+export type Sortable = { sortOrder?: number };
+
 /** Stored custom food. Macros are per 100g; the id is a client-minted
  * UUID so the same record can exist in IndexedDB and Supabase under the
  * same key (no mapping needed for sync). createdAt drives most-recent
@@ -51,7 +59,8 @@ export type Versioned = {
 export type CustomFood = Omit<Food, "id" | "source"> & {
   id: string;
   createdAt: number;
-} & Versioned;
+} & Versioned &
+  Sortable;
 
 /** A single day's meal log. Keyed by `YYYY-MM-DD` in the user's local
  * timezone. The `meals` shape mirrors the in-memory `Meal[]` exactly.
@@ -82,7 +91,8 @@ export type MealTemplate = {
    *  without a refactor — `localUpdatedAt` is the authoritative one
    *  for sync. */
   updatedAt: number;
-} & Versioned;
+} & Versioned &
+  Sortable;
 
 /** A single weigh-in. Keyed by `YYYY-MM-DD` local date — same-day writes
  * overwrite, so the latest weigh-in for a day wins. */
@@ -117,7 +127,7 @@ interface MacroDB extends DBSchema {
   [STORE_WEIGHT_HISTORY]: { key: string; value: WeightEntry };
   [STORE_RECIPES]: {
     key: string;
-    value: Recipe & Versioned;
+    value: Recipe & Versioned & Sortable;
     indexes: { byName: string };
   };
 }
@@ -348,6 +358,15 @@ export function customToFood(c: CustomFood): Food {
     category: c.category,
     subCategory: c.subCategory,
     brand: c.brand,
+    // Optional macro-breakdown carried through so it surfaces in the
+    // food-search result + the daily totals breakdown.
+    sugars: c.sugars,
+    addedSugars: c.addedSugars,
+    fiber: c.fiber,
+    saturatedFat: c.saturatedFat,
+    transFat: c.transFat,
+    monoFat: c.monoFat,
+    polyFat: c.polyFat,
   };
 }
 
@@ -719,7 +738,9 @@ export async function markRecipeSynced(
   });
 }
 
-export async function listRecipes(): Promise<Array<Recipe & Versioned>> {
+export async function listRecipes(): Promise<
+  Array<Recipe & Versioned & Sortable>
+> {
   const db = await getDB();
   const rows = await db.getAll(STORE_RECIPES);
   return rows.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -728,6 +749,56 @@ export async function listRecipes(): Promise<Array<Recipe & Versioned>> {
 export async function deleteRecipe(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_RECIPES, id);
+}
+
+// ─── Sort order (custom drag-and-drop) ────────────────────────────────────
+
+/** The three list-table stores that support the "custom" sort mode in
+ *  the UI (My Foods, Recipes, Templates). Other stores either have
+ *  intrinsic ordering (daily logs, weights — by date) or are
+ *  single-row (profile). */
+export type SortableStoreName =
+  | typeof STORE_CUSTOM_FOODS
+  | typeof STORE_RECIPES
+  | typeof STORE_MEAL_TEMPLATES;
+
+/** Set a row's manual `sortOrder` after a drag-and-drop. Pure number
+ *  write: the rest of the row stays as-is. Marks the row dirty via the
+ *  same `localUpdatedAt` bump every saver does, so the next sync push
+ *  carries the change. */
+export async function setSortOrder(
+  store: SortableStoreName,
+  id: string,
+  sortOrder: number,
+): Promise<void> {
+  const db = await getDB();
+  const row = await db.get(store, id);
+  if (!row) return;
+  await db.put(store, {
+    ...row,
+    sortOrder,
+    localUpdatedAt: nowIso(),
+    serverUpdatedAt: row.serverUpdatedAt ?? null,
+  });
+}
+
+/** Compute a fractional sort key that sits between `prev` and `next`.
+ *  Either neighbor can be `null` (end of list). The returned number
+ *  is the midpoint of two reals when both neighbors exist — the
+ *  classic fractional-indexing trick that avoids the renumber cascade
+ *  a plain integer position would require.
+ *
+ *  Exported for tests; also used by the drag-end handlers. */
+export function computeSortBetween(
+  prev: number | null | undefined,
+  next: number | null | undefined,
+): number {
+  const a = prev ?? null;
+  const b = next ?? null;
+  if (a == null && b == null) return Date.now();
+  if (a == null) return (b as number) - 1;
+  if (b == null) return (a as number) + 1;
+  return (a + b) / 2;
 }
 
 // ─── Bulk ──────────────────────────────────────────────────────────────────

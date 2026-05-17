@@ -1,7 +1,8 @@
 "use client";
 
+import { REFINERS } from "@/lib/ai/refiners";
 import React from "react";
-import { GripVertical, Loader2, RefreshCw } from "lucide-react";
+import { GripVertical, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   DndContext,
@@ -19,6 +20,7 @@ import {
   CalculatedValues,
   Food,
   FoodItem,
+  MacroBreakdown,
   Meal,
 } from "../../components/macro/types";
 import { DateNavigator } from "../shell/DateNavigator";
@@ -35,6 +37,10 @@ interface MealPlannerProps {
     fat: number;
     calories: number;
   };
+  /** Optional sub-macro totals (sugars / fiber / fat subtypes). Only
+   *  keys actually contributed by today's foods are populated; the
+   *  display layer hides rows for unknown values. */
+  macroBreakdown: MacroBreakdown;
   meals: Meal[];
   selectedDate: string;
   today: string;
@@ -86,6 +92,12 @@ interface MealPlannerProps {
   handleReplacementSearch: (e: React.ChangeEvent<HTMLInputElement>) => void;
   replaceFood: (newFood: Food) => void;
   generateMealPlan: () => Promise<void>;
+  /** Apply a one-shot refinement to the current meal plan (sourced
+   *  from a refiner pill like "lower sugars"). The parent calls
+   *  /api/meal-plan with `refinement` + `previousMeals` and replaces
+   *  `meals` on success. Reuses the same `isGeneratingMealPlan` busy
+   *  state — only one AI request runs at a time. */
+  onRefineMealPlan: (refinement: string) => Promise<void>;
   setPortionSize: (size: number) => void;
   onSaveOffToCustom: (food: Food) => void;
   onOpenCustomFoodForm: () => void;
@@ -98,6 +110,7 @@ interface MealPlannerProps {
 const MealPlanner: React.FC<MealPlannerProps> = ({
   calculatedValues,
   totalMacros,
+  macroBreakdown,
   meals,
   selectedDate,
   today,
@@ -133,6 +146,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   handleReplacementSearch,
   replaceFood,
   generateMealPlan,
+  onRefineMealPlan,
   onSaveOffToCustom,
   onOpenCustomFoodForm,
   onOpenCamera,
@@ -207,6 +221,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
           <DailyTotals
             calculatedValues={calculatedValues}
             totalMacros={totalMacros}
+            breakdown={macroBreakdown}
           />
         </div>
       </section>
@@ -275,6 +290,34 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Refiner pills — only rendered when there's at least one food
+            anywhere in the day's meals (no point asking the AI to
+            "lower the sugars" of an empty plan). Each pill is a single
+            tap; the busy state is shared with the Auto-fill button via
+            `isGeneratingMealPlan`. */}
+        {!dayIsEmpty && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 bg-muted/20 px-5 py-2.5">
+            <span className="mr-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <Sparkles className="h-3 w-3" />
+              Refine
+            </span>
+            {REFINERS.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => {
+                  void onRefineMealPlan(r.text);
+                }}
+                disabled={isGeneratingMealPlan}
+                className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                title={r.text}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {dayIsEmpty && (
           <div className="border-b border-border/60 bg-muted/20 px-5 py-3 text-xs text-muted-foreground">

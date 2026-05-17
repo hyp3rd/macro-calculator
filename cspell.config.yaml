@@ -18,7 +18,9 @@ words:
   - barcodes
   - behaviour
   - Brûlée
+  - cals
   - carb
+  - celiacs
   - cmdk
   - Cramer
   - Cramer's
@@ -28,10 +30,12 @@ words:
   - Dedup
   - dedups
   - desaturated
+  - describedby
   - dismissable
   - Elipssis
   - Embla
   - Fage
+  - farro
   - frob
   - Frobenius
   - gridlines
@@ -43,6 +47,7 @@ words:
   - inlines
   - intolerances
   - Jeor
+  - kamut
   - licious
   - lifecycles
   - macronutrient
@@ -67,6 +72,7 @@ words:
   - Postgrest
   - pubname
   - qrcode
+  - roledescription
   - schemaname
   - sparkline
   - summarise
@@ -77,6 +83,7 @@ words:
   - Turbopack
   - tyramine
   - Unconfigured
+  - unsat
   - unsub
   - upserted
   - upserts

@@ -14,6 +14,14 @@ export type AiPlanRequest = {
   /** Soft signal — foods the user dislikes but isn't allergic to. The AI
    * is asked to avoid them when it can. Not enforced server-side. */
   dislikedFoods: string[];
+  /** Optional: free-text refinement to apply to a previously-generated
+   *  plan (sourced from a refiner pill like "lower sugars"). Requires
+   *  `previousMeals` to also be set so the AI has a starting plan to
+   *  adjust. */
+  refinement?: string;
+  /** Optional: the meal plan the user wants adjusted. Required when
+   *  `refinement` is set; ignored otherwise. */
+  previousMeals?: Meal[];
 };
 
 /** Result of asking the AI for a meal plan. `kind: "ok"` always carries

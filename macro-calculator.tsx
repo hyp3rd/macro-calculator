@@ -16,6 +16,7 @@ import { ProgressView } from "./components/macro/ProgressView";
 import { RecipesView } from "./components/macro/RecipesView";
 import { SaveTemplateDialog } from "./components/macro/SaveTemplateDialog";
 import { SettingsView } from "./components/macro/SettingsView";
+import { TemplatesView } from "./components/macro/TemplatesView";
 import {
   CalculatedValues,
   Food,
@@ -42,7 +43,7 @@ import {
   listCustomFoods,
   type MealTemplate,
 } from "./lib/db";
-import { computeMacros } from "./lib/macros";
+import { aggregateMacroBreakdown, computeMacros } from "./lib/macros";
 import { planDay, summarisePlan } from "./lib/meal-planner";
 import { bumpPending } from "./lib/sync-status";
 
@@ -262,6 +263,12 @@ const MacroCalculator = () => {
     };
   }, [meals]);
 
+  /** Derived: optional macro-breakdown (sugars / fiber / fat subtypes).
+   *  Returns only the keys at least one food in today's meals
+   *  contributed — the display layer hides rows where we have no data
+   *  so a blank seed-catalog entry doesn't render misleading "0g". */
+  const macroBreakdown = useMemo(() => aggregateMacroBreakdown(meals), [meals]);
+
   // Handle personal info input changes. Accepts arrays so the multi-value
   // fields (cuisinePreferences, allergies, dislikedFoods) and MacroSplit
   // (the optional macro override) can all ride through the same path.
@@ -283,6 +290,14 @@ const MacroCalculator = () => {
     setSelectedFood(food);
     setFoodSearch(food.name);
     const ratio = portionSize / 100;
+    // Helper: scale an optional per-100g sub-macro to the chosen
+    // portion. Returns undefined when the source food doesn't carry a
+    // value — preserved so the daily-totals breakdown can distinguish
+    // "unknown" from "zero" downstream.
+    const scaleOpt = (v: number | undefined) =>
+      typeof v === "number"
+        ? Number.parseFloat((v * ratio).toFixed(1))
+        : undefined;
     setNewFood({
       ...newFood,
       name: food.name,
@@ -290,6 +305,13 @@ const MacroCalculator = () => {
       carbs: Number.parseFloat((food.carbs * ratio).toFixed(1)),
       fat: Number.parseFloat((food.fat * ratio).toFixed(1)),
       calories: Math.round(food.calories * ratio),
+      sugars: scaleOpt(food.sugars),
+      addedSugars: scaleOpt(food.addedSugars),
+      fiber: scaleOpt(food.fiber),
+      saturatedFat: scaleOpt(food.saturatedFat),
+      transFat: scaleOpt(food.transFat),
+      monoFat: scaleOpt(food.monoFat),
+      polyFat: scaleOpt(food.polyFat),
     });
     setShowSuggestions(false);
   };
@@ -875,6 +897,73 @@ const MacroCalculator = () => {
     }
   };
 
+  /** Apply a one-shot refinement (from a refiner pill) to the current
+   *  meal plan. Shares the `isGeneratingMealPlan` busy state with the
+   *  Auto-fill button — only one AI call is in flight at a time, which
+   *  the route also guards by being non-reentrant. Failures surface in
+   *  `mealPlanMessage`; the existing meals are left untouched on
+   *  error. */
+  const handleRefineMealPlan = async (refinement: string) => {
+    if (isGeneratingMealPlan) return;
+    setIsGeneratingMealPlan(true);
+    setMealPlanMessage("Refining your meal plan…");
+    try {
+      let customFoods: Food[] = [];
+      try {
+        const rows = await listCustomFoods();
+        customFoods = rows.map(customToFood);
+      } catch {
+        // Proceed with builtins only.
+      }
+      const daily = {
+        protein: calculatedValues.protein,
+        carbs: calculatedValues.carbs,
+        fat: calculatedValues.fat,
+        calories: calculatedValues.targetCalories,
+      };
+      const ai = await requestAiMealPlan({
+        targets: daily,
+        dietPreference: personalInfo.dietPreference,
+        mealNames: meals.map((m) => m.name),
+        customFoods,
+        cuisinePreferences: personalInfo.cuisinePreferences ?? [],
+        allergies: personalInfo.allergies ?? [],
+        dislikedFoods: personalInfo.dislikedFoods ?? [],
+        refinement,
+        previousMeals: meals,
+      });
+      if (ai.kind === "ok") {
+        setMeals(ai.meals);
+        const summary = summarisePlan(ai.meals, daily);
+        const fmt = (n: number) => `${Math.round(n)}%`;
+        setMealPlanMessage(
+          `Refined — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`,
+        );
+        setTimeout(() => setMealPlanMessage(""), 5000);
+        return;
+      }
+      // Unlike Auto-fill, we don't fall back to the deterministic
+      // planner for refinements — it has no notion of free-text
+      // constraints. Just surface the failure and leave the plan as-is.
+      const msg =
+        ai.kind === "not-configured"
+          ? "AI not configured — refinement skipped."
+          : ai.kind === "not-authenticated"
+            ? "Sign in to use AI refinements."
+            : ai.kind === "rate-limited"
+              ? "AI rate-limited — try again shortly."
+              : ai.kind === "error"
+                ? `Refinement failed: ${ai.message}`
+                : "Refinement failed.";
+      setMealPlanMessage(msg);
+    } catch (error) {
+      setMealPlanMessage("Error refining meal plan. Please try again.");
+      console.error("Meal plan refinement error:", error);
+    } finally {
+      setIsGeneratingMealPlan(false);
+    }
+  };
+
   return (
     <AppShell
       current={view}
@@ -901,6 +990,7 @@ const MacroCalculator = () => {
         <MealPlanner
           calculatedValues={calculatedValues}
           totalMacros={totalMacros}
+          macroBreakdown={macroBreakdown}
           meals={meals}
           selectedDate={selectedDate}
           today={today}
@@ -936,6 +1026,7 @@ const MacroCalculator = () => {
           handleReplacementSearch={handleReplacementSearch}
           replaceFood={replaceFood}
           generateMealPlan={generateMealPlan}
+          onRefineMealPlan={handleRefineMealPlan}
           onSaveOffToCustom={handleSaveOffToCustom}
           onOpenCustomFoodForm={() => setCustomFoodOpen(true)}
           onOpenCamera={() => setCameraSheetOpen(true)}
@@ -958,6 +1049,8 @@ const MacroCalculator = () => {
       )}
 
       {view === "recipes" && <RecipesView profile={personalInfo} />}
+
+      {view === "templates" && <TemplatesView />}
 
       {view === "settings" && <SettingsView />}
 

@@ -214,3 +214,75 @@ describe("searchOpenFoodFactsServer", () => {
     }
   });
 });
+
+describe("hitToFood — Open Food Facts → Food (sub-macros)", () => {
+  it("extracts the optional macro-breakdown when OFF supplies it", async () => {
+    const { hitToFood } = await import("./off-search");
+    const food = hitToFood({
+      code: "12345",
+      product_name: "Test cereal",
+      brands: "Test Co",
+      nutriments: {
+        proteins_100g: 8,
+        carbohydrates_100g: 70,
+        fat_100g: 5,
+        "energy-kcal_100g": 380,
+        sugars_100g: 22,
+        "sugars-added_100g": 18,
+        fiber_100g: 6,
+        "saturated-fat_100g": 1.5,
+        "trans-fat_100g": 0,
+        "monounsaturated-fat_100g": 2,
+        "polyunsaturated-fat_100g": 1,
+      },
+    });
+    expect(food).not.toBeNull();
+    if (!food) return;
+    expect(food.sugars).toBe(22);
+    expect(food.addedSugars).toBe(18);
+    expect(food.fiber).toBe(6);
+    expect(food.saturatedFat).toBe(1.5);
+    expect(food.transFat).toBe(0);
+    expect(food.monoFat).toBe(2);
+    expect(food.polyFat).toBe(1);
+  });
+
+  it("leaves sub-macros undefined when OFF doesn't supply them (so display can hide rather than show '0g')", async () => {
+    const { hitToFood } = await import("./off-search");
+    const food = hitToFood({
+      code: "67890",
+      product_name: "Plain rice",
+      nutriments: {
+        proteins_100g: 7,
+        carbohydrates_100g: 80,
+        fat_100g: 1,
+        "energy-kcal_100g": 360,
+      },
+    });
+    expect(food).not.toBeNull();
+    if (!food) return;
+    expect(food.sugars).toBeUndefined();
+    expect(food.fiber).toBeUndefined();
+    expect(food.saturatedFat).toBeUndefined();
+  });
+
+  it("treats non-numeric values defensively (NaN / string → undefined)", async () => {
+    const { hitToFood } = await import("./off-search");
+    const food = hitToFood({
+      code: "99999",
+      product_name: "Bogus row",
+      nutriments: {
+        proteins_100g: 5,
+        carbohydrates_100g: 10,
+        fat_100g: 2,
+        "energy-kcal_100g": 80,
+        sugars_100g: "12" as unknown as number,
+        fiber_100g: NaN,
+      },
+    });
+    expect(food).not.toBeNull();
+    if (!food) return;
+    expect(food.sugars).toBeUndefined();
+    expect(food.fiber).toBeUndefined();
+  });
+});

@@ -254,3 +254,101 @@ describe("computeMacros", () => {
     });
   });
 });
+
+describe("aggregateMacroBreakdown", () => {
+  it("sums fields a food contributed, omits fields no food contributed", async () => {
+    const { aggregateMacroBreakdown } = await import("./macros");
+    const result = aggregateMacroBreakdown([
+      {
+        id: 1,
+        name: "Breakfast",
+        foods: [
+          {
+            id: 1,
+            name: "Cereal",
+            protein: 4,
+            carbs: 30,
+            fat: 2,
+            calories: 150,
+            portionSize: 50,
+            sugars: 12,
+            fiber: 3,
+          },
+          {
+            id: 2,
+            name: "Milk",
+            protein: 4,
+            carbs: 6,
+            fat: 4,
+            calories: 80,
+            portionSize: 100,
+            sugars: 5,
+            // no fiber, no fat-subtypes — those keys should still be
+            // reported because *cereal* contributed fiber.
+          },
+        ],
+      },
+    ]);
+    expect(result.sugars).toBe(17);
+    expect(result.fiber).toBe(3);
+    // No food contributed these — they're absent rather than 0.
+    expect(result.saturatedFat).toBeUndefined();
+    expect(result.transFat).toBeUndefined();
+    expect(result.addedSugars).toBeUndefined();
+  });
+
+  it("returns an empty object when no food has any sub-macro", async () => {
+    const { aggregateMacroBreakdown } = await import("./macros");
+    const result = aggregateMacroBreakdown([
+      {
+        id: 1,
+        name: "Lunch",
+        foods: [
+          {
+            id: 1,
+            name: "Plain rice",
+            protein: 7,
+            carbs: 80,
+            fat: 1,
+            calories: 360,
+            portionSize: 100,
+          },
+        ],
+      },
+    ]);
+    expect(Object.keys(result)).toHaveLength(0);
+  });
+
+  it("rounds to one decimal so display tiles stay tidy", async () => {
+    const { aggregateMacroBreakdown } = await import("./macros");
+    const result = aggregateMacroBreakdown([
+      {
+        id: 1,
+        name: "X",
+        foods: [
+          {
+            id: 1,
+            name: "a",
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            calories: 0,
+            portionSize: 100,
+            fiber: 1.234,
+          },
+          {
+            id: 2,
+            name: "b",
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            calories: 0,
+            portionSize: 100,
+            fiber: 0.789,
+          },
+        ],
+      },
+    ]);
+    expect(result.fiber).toBe(2); // 2.023 → 2.0
+  });
+});
