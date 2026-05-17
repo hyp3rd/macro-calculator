@@ -173,13 +173,24 @@ export function RecipesView({ profile }: Props) {
     notes?: string;
   }) {
     if (editing?.id) {
-      // Edit path — keep id, bump updatedAt.
-      const next: Recipe = {
+      // Edit path — keep id, bump updatedAt. `upsertRecipe` is a full-
+      // row replace under the hood (db.put), so we must explicitly
+      // carry over fields the edit form doesn't surface: shareSlug,
+      // shareVisibility, sortOrder. Without this, editing a recipe
+      // silently revoked its share link AND lost its drag-sorted
+      // position — both fields would be omitted from `next`, the IDB
+      // row would replace as undefined, and the next sync push would
+      // send `share_slug: null` / `sort_order: null` to the server.
+      const existing = recipes?.find((r) => r.id === editing.id);
+      const next: Recipe & { sortOrder?: number } = {
         id: editing.id,
         name: draft.name,
         ingredients: draft.ingredients,
         cuisine: draft.cuisine,
         notes: draft.notes,
+        shareSlug: existing?.shareSlug,
+        shareVisibility: existing?.shareVisibility,
+        sortOrder: existing?.sortOrder,
         createdAt: editing.createdAt ?? Date.now(),
         updatedAt: Date.now(),
       };
