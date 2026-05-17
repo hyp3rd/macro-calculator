@@ -343,16 +343,16 @@ function SortableRecipeRow({
     <li
       ref={setNodeRef as React.Ref<HTMLLIElement>}
       style={style}
-      className="flex items-center gap-2 px-3 py-2.5"
+      className="flex items-center gap-1.5 px-3 py-2 active:bg-muted/30 sm:gap-2 sm:py-2.5"
     >
       {draggable && (
         <button
           type="button"
           {...handleProps}
-          className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          className="flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:text-foreground active:cursor-grabbing sm:h-7"
           aria-label={`Drag to reorder ${recipe.name}`}
         >
-          <GripVertical className="h-3.5 w-3.5" />
+          <GripVertical className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
         </button>
       )}
       <div className="min-w-0 flex-1">
@@ -388,21 +388,21 @@ function SortableRecipeRow({
         type="button"
         variant="ghost"
         size="icon"
-        className="h-7 w-7"
+        className="h-9 w-9 sm:h-8 sm:w-8"
         onClick={onEdit}
-        title="Edit"
+        aria-label={`Edit ${recipe.name}`}
       >
-        <Pencil className="h-3.5 w-3.5" />
+        <Pencil className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
       </Button>
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+        className="h-9 w-9 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
         onClick={onDelete}
-        title="Delete"
+        aria-label={`Delete ${recipe.name}`}
       >
-        <Trash2 className="h-3.5 w-3.5" />
+        <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
       </Button>
     </li>
   );

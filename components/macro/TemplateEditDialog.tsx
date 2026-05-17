@@ -253,11 +253,11 @@ function EditorBody({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    className="h-9 w-9 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
                     onClick={() => removeAt(f.id)}
-                    title={`Remove ${f.name}`}
+                    aria-label={`Remove ${f.name}`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                   </Button>
                 </li>
               ))}
@@ -316,11 +316,11 @@ function EditorBody({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-9 w-9 sm:h-8 sm:w-8"
                         onClick={() => addFromSearch(r)}
-                        title={`Add ${r.name} (${DEFAULT_PORTION} g)`}
+                        aria-label={`Add ${r.name} (${DEFAULT_PORTION} g)`}
                       >
-                        <Plus className="h-3.5 w-3.5" />
+                        <Plus className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                       </Button>
                     </li>
                   ))}

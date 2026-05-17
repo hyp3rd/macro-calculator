@@ -221,9 +221,9 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
-        <div className="px-5 py-4">
+        <div className="px-3 py-3 sm:px-5 sm:py-4">
           <DailyTotals
             calculatedValues={calculatedValues}
             totalMacros={totalMacros}
@@ -256,7 +256,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
       />
 
       <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
-        <header className="flex flex-col gap-3 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-2 border-b border-border/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5 sm:py-3">
           <DateNavigator
             date={selectedDate}
             today={today}
@@ -268,12 +268,12 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
             size="sm"
             onClick={generateMealPlan}
             disabled={isGeneratingMealPlan}
-            className="h-8 gap-2 self-end sm:self-auto"
+            className="h-9 gap-2 self-end sm:h-8 sm:self-auto"
           >
             {isGeneratingMealPlan ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin sm:h-3.5 sm:w-3.5" />
             ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
             )}
             {isGeneratingMealPlan ? "Generating…" : "Auto-fill"}
           </Button>
@@ -286,7 +286,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.18 }}
-              className={`overflow-hidden whitespace-pre-line border-b border-border/60 px-5 py-2.5 text-xs ${
+              className={`overflow-hidden whitespace-pre-line border-b border-border/60 px-3 py-2.5 text-xs sm:px-5 ${
                 isError
                   ? "text-rose-700 dark:text-rose-400"
                   : "text-muted-foreground"
@@ -303,7 +303,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
             tap; the busy state is shared with the Auto-fill button via
             `isGeneratingMealPlan`. */}
         {!dayIsEmpty && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 bg-muted/20 px-5 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 bg-muted/20 px-3 py-2 sm:px-5 sm:py-2.5">
             <span className="mr-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <Sparkles className="h-3 w-3" />
               Refine
@@ -316,7 +316,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
                   void onRefineMealPlan(r.text);
                 }}
                 disabled={isGeneratingMealPlan}
-                className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-8 rounded-full border border-border/60 bg-background px-3 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:h-7"
                 title={r.text}
               >
                 {r.label}
@@ -326,7 +326,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
         )}
 
         {dayIsEmpty && (
-          <div className="border-b border-border/60 bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
+          <div className="border-b border-border/60 bg-muted/20 px-3 py-3 text-xs text-muted-foreground sm:px-5">
             <span className="font-medium text-foreground">
               No meals logged for this day.
             </span>{" "}
