@@ -98,6 +98,11 @@ interface MealPlannerProps {
    *  `meals` on success. Reuses the same `isGeneratingMealPlan` busy
    *  state — only one AI request runs at a time. */
   onRefineMealPlan: (refinement: string) => Promise<void>;
+  /** Regenerate ONLY one meal slot — fires the AI route with
+   *  `targetMealName` set. The parent finds the returned meal by name
+   *  and swaps it into the matching slot, leaving the others alone.
+   *  Shares the `isGeneratingMealPlan` busy state. */
+  onRegenerateMeal: (mealId: number) => Promise<void>;
   setPortionSize: (size: number) => void;
   onSaveOffToCustom: (food: Food) => void;
   onOpenCustomFoodForm: () => void;
@@ -147,6 +152,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
   replaceFood,
   generateMealPlan,
   onRefineMealPlan,
+  onRegenerateMeal,
   onSaveOffToCustom,
   onOpenCustomFoodForm,
   onOpenCamera,
@@ -375,6 +381,8 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
                 onSaveAsTemplate={onSaveAsTemplate}
                 onAddFromTemplate={onAddFromTemplate}
                 onApplyRecipe={onApplyRecipe}
+                onRegenerate={onRegenerateMeal}
+                regenerating={isGeneratingMealPlan}
               />
             ))}
           </div>

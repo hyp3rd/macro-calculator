@@ -35,6 +35,15 @@ vi.mock("@/lib/db", () => ({
   upsertCustomFood: vi.fn(),
   upsertMealTemplate: vi.fn(),
   upsertRecipe: vi.fn(),
+  // Pass A: UUID-collision recovery in the sync engine now uses
+  // applyServerDeletion (silent local-only delete + clear tombstone)
+  // instead of deleteX, so a re-mint cycle doesn't create a phantom
+  // tombstone for the OLD UUID that never reached the server.
+  applyServerDeletion: vi.fn(),
+  // Tombstone-drain helpers (Pass A). Mocked so the sync's new
+  // pushDeletions step is a no-op in these test scenarios.
+  listDeletions: vi.fn().mockResolvedValue([]),
+  clearDeletion: vi.fn(),
   deleteCustomFood: vi.fn(),
   deleteMealTemplate: vi.fn(),
   deleteRecipe: vi.fn(),
@@ -61,6 +70,7 @@ function newResult(): SyncResult {
       recipes: 0,
     },
     conflicts: 0,
+    deletionsPushed: 0,
   };
 }
 
@@ -319,7 +329,12 @@ describe("pushCustomFoods — per-row push with optimistic concurrency", () => {
 
     expect(result.pushed.customFoods).toBe(1);
     expect(vi.mocked(db.upsertCustomFood)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(db.deleteCustomFood)).toHaveBeenCalledWith("collides");
+    // Re-mint path uses applyServerDeletion (no tombstone) — see the
+    // mock comment above for the why.
+    expect(vi.mocked(db.applyServerDeletion)).toHaveBeenCalledWith(
+      "customFoods",
+      "collides",
+    );
   });
 
   it("rethrows non-42501 errors instead of swallowing them", async () => {
@@ -379,7 +394,10 @@ describe("pushMealTemplates — same per-row semantics as customFoods", () => {
 
     expect(result.pushed.mealTemplates).toBe(1);
     expect(vi.mocked(db.upsertMealTemplate)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(db.deleteMealTemplate)).toHaveBeenCalledWith("collides");
+    expect(vi.mocked(db.applyServerDeletion)).toHaveBeenCalledWith(
+      "mealTemplates",
+      "collides",
+    );
   });
 });
 

@@ -4,16 +4,17 @@ import type { Recipe } from "@/components/macro/types";
 import {
   applyServerCustomFood,
   applyServerDailyLog,
+  applyServerDeletion,
   applyServerMealTemplate,
   applyServerProfile,
   applyServerRecipe,
   applyServerWeightEntry,
-  deleteCustomFood,
-  deleteMealTemplate,
-  deleteRecipe,
+  clearAllStores,
+  clearDeletion,
   getProfileRecord,
   listCustomFoods,
   listDailyLogs,
+  listDeletions,
   listMealTemplates,
   listRecipes,
   listWeightEntries,
@@ -28,6 +29,7 @@ import {
   upsertRecipe,
   type CustomFood,
   type DailyLog,
+  type DeletionRecord,
   type MealTemplate,
   type WeightEntry,
 } from "@/lib/db";
@@ -83,6 +85,11 @@ export type SyncResult = {
    *  this to tell the user what didn't sync; for now sync-status pill
    *  surfaces the count. */
   conflicts: number;
+  /** Tombstones successfully propagated to the server this run. Used
+   *  by the sync-status pill so users know their delete *did* land
+   *  (otherwise the silent "I just deleted this — is it really gone
+   *  on the other device?" question.) */
+  deletionsPushed: number;
 };
 
 const ZERO_COUNTS = {
@@ -120,9 +127,18 @@ export async function runInitialSync(
     pushed: { ...ZERO_COUNTS },
     pulled: { ...ZERO_COUNTS },
     conflicts: 0,
+    deletionsPushed: 0,
   };
 
-  // Pull first — see the comment above for the incognito-clobber reason.
+  // Drain deletion tombstones FIRST. If the user deleted a row
+  // locally since the last sync, we want that delete to land on the
+  // server before the upcoming pull — otherwise pull would re-fetch
+  // the row and write it straight back into IDB ("silent
+  // resurrection" bug). Failures here are not fatal; the tombstone
+  // stays in the store and the next sync retries.
+  await pushDeletions(supabase, result);
+
+  // Pull next — see the comment above for the incognito-clobber reason.
   await pullProfile(supabase, userId, result);
   await pullDailyLogs(supabase, userId, result);
   await pullWeightEntries(supabase, userId, result);
@@ -159,6 +175,40 @@ export async function triggerSync(
     } else {
       setSynced();
     }
+    return result;
+  } catch (err) {
+    setSyncError(err);
+    throw err;
+  }
+}
+
+/** "Throw away every local edit and accept the server's state." Wipes
+ *  IDB completely (including pending tombstones — so a row the user
+ *  deleted but hasn't synced gets resurrected from the server too),
+ *  then runs a normal sync so the data refills from upstream. The
+ *  realtime layer doesn't have to wait — the next `triggerSync` pull
+ *  pass writes everything via `applyServerX`, which also fires the
+ *  data bus so hooks re-hydrate.
+ *
+ *  Used by the "Discard local changes" affordance on the sync pill.
+ *  Like `triggerSync` it's non-reentrant on the sync-status state, so
+ *  a concurrent sync gets a `null` and the caller can retry. */
+export async function discardPendingChanges(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<SyncResult | null> {
+  if (getSyncStatus().state === "syncing") return null;
+  setSyncing();
+  try {
+    // Wipe local first so the pending counter / dirty-row check can't
+    // see anything to push. clearAllStores also wipes tombstones so
+    // we don't end up server-deleting a row the user changed their
+    // mind about discarding.
+    await clearAllStores();
+    const result = await runInitialSync(supabase, userId);
+    // After discard, there should be no conflicts (we have nothing
+    // dirty to push). Surface as plain "synced".
+    setSynced();
     return result;
   } catch (err) {
     setSyncError(err);
@@ -283,6 +333,64 @@ function isDirty(row: {
 }): boolean {
   if (!row.serverUpdatedAt) return true;
   return row.localUpdatedAt !== row.serverUpdatedAt;
+}
+
+// ─── Push deletions (tombstone drain) ─────────────────────────────────────
+
+/** Maps the `DeletableStore` enum (which matches the IDB store names)
+ *  to the Supabase table name and the PK column we filter on. Profile
+ *  is not in the map because it's never user-deleteable through this
+ *  path — the only profile deletion is "delete account" which has its
+ *  own server route. */
+const DELETE_TARGET: Record<
+  DeletionRecord["storeName"],
+  { table: string; pk: string }
+> = {
+  customFoods: { table: "custom_foods", pk: "id" },
+  mealTemplates: { table: "meal_templates", pk: "id" },
+  recipes: { table: "recipes", pk: "id" },
+  dailyLogs: { table: "daily_logs", pk: "date" },
+  weightHistory: { table: "weight_history", pk: "date" },
+};
+
+/** Drains the IDB deletion-tombstone store: for each tombstone, issues
+ *  `DELETE FROM <table> WHERE <pk> = <rowKey>` server-side and clears
+ *  the tombstone on success. Per-tombstone errors are swallowed (the
+ *  tombstone stays in the store; the next sync retries) so a single
+ *  network blip doesn't abort the whole sync. */
+async function pushDeletions(supabase: SupabaseClient, result: SyncResult) {
+  let tombstones: DeletionRecord[];
+  try {
+    tombstones = await listDeletions();
+  } catch {
+    return;
+  }
+  for (const t of tombstones) {
+    const target = DELETE_TARGET[t.storeName];
+    if (!target) {
+      // Unknown store name (shouldn't happen — types prevent it, but
+      // defensive). Clear the tombstone so it doesn't loop forever.
+      await clearDeletion(t.storeName, t.rowKey).catch(() => {});
+      continue;
+    }
+    const { error } = await withTimeout(
+      `push deletion ${target.table}#${t.rowKey}`,
+      (signal) =>
+        supabase
+          .from(target.table)
+          .delete()
+          .eq(target.pk, t.rowKey)
+          .abortSignal(signal),
+    ).catch((err) => ({ error: err as { message?: string } }));
+    if (error) {
+      // Don't drop the tombstone — try again next sync. Common reasons
+      // we'd hit this: transient network failure, RLS misconfig. We
+      // do NOT throw, so the rest of the sync still runs.
+      continue;
+    }
+    await clearDeletion(t.storeName, t.rowKey).catch(() => {});
+    result.deletionsPushed++;
+  }
 }
 
 // ─── Push ──────────────────────────────────────────────────────────────────
@@ -414,7 +522,12 @@ async function pushCustomFoodOnce(
     // path which goes through the no-server-token branch above.
     const newId = crypto.randomUUID();
     await upsertCustomFood({ ...food, id: newId, serverUpdatedAt: null });
-    await deleteCustomFood(food.id);
+    // UUID-collision recovery: re-mint the local row with a fresh
+    // UUID and drop the old one. We use applyServerDeletion (not
+    // deleteCustomFood) so a tombstone *isn't* created — the OLD UUID
+    // never belonged to this user on the server, so we have nothing
+    // to delete server-side.
+    await applyServerDeletion("customFoods", food.id);
     const retry = await pushCustomFoodOnce(
       supabase,
       userId,
@@ -469,7 +582,7 @@ async function pushTemplateOnce(
   if (outcome.status === "uuid-collision") {
     const newId = crypto.randomUUID();
     await upsertMealTemplate({ ...template, id: newId, serverUpdatedAt: null });
-    await deleteMealTemplate(template.id);
+    await applyServerDeletion("mealTemplates", template.id);
     return pushTemplateOnce(
       supabase,
       userId,
@@ -527,7 +640,7 @@ async function pushRecipeOnce(
       id: newId,
       serverUpdatedAt: null,
     } as Recipe & { serverUpdatedAt: null });
-    await deleteRecipe(recipe.id);
+    await applyServerDeletion("recipes", recipe.id);
     return pushRecipeOnce(
       supabase,
       userId,

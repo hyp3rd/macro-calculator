@@ -1,16 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   computeSortBetween,
   deleteMealTemplate,
@@ -45,6 +36,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { SortControl, sortByMode, useSortMode } from "./SortControl";
+import { TemplateEditDialog } from "./TemplateEditDialog";
 import { useSortableRow } from "./useSortableRow";
 
 /** Top-level page that lists meal templates the user has saved (today
@@ -151,20 +143,31 @@ export function TemplatesView() {
     }
   }
 
-  async function handleRename(t: MealTemplate, newName: string) {
-    const trimmed = newName.trim();
-    if (!trimmed || trimmed === t.name) {
+  /** Save the full edit (name + foods). The full editor replaces the
+   *  old rename-only dialog — renames are a degenerate case (foods
+   *  array unchanged). Optimistic update with revert on IDB failure. */
+  async function handleSaveEdit(
+    t: MealTemplate,
+    next: { name: string; foods: MealTemplate["foods"] },
+  ) {
+    const trimmedName = next.name.trim();
+    if (!trimmedName) {
       setRenaming(null);
       return;
     }
-    const next: MealTemplate = { ...t, name: trimmed, updatedAt: Date.now() };
+    const updated: MealTemplate = {
+      ...t,
+      name: trimmedName,
+      foods: next.foods,
+      updatedAt: Date.now(),
+    };
     // Optimistic update — the local saver bumps localUpdatedAt under
     // the hood so the next sync picks the row up as dirty.
     setTemplates((prev) =>
-      prev ? prev.map((row) => (row.id === t.id ? next : row)) : prev,
+      prev ? prev.map((row) => (row.id === t.id ? updated : row)) : prev,
     );
     try {
-      await upsertMealTemplate(next);
+      await upsertMealTemplate(updated);
       bumpPending();
     } catch (err) {
       reportStorageError(err);
@@ -254,11 +257,17 @@ export function TemplatesView() {
         </DndContext>
       )}
 
-      <RenameDialog
-        target={renaming}
-        onCancel={() => setRenaming(null)}
-        onConfirm={handleRename}
-      />
+      {renaming && (
+        <TemplateEditDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setRenaming(null);
+          }}
+          initialName={renaming.name}
+          initialFoods={renaming.foods}
+          onSave={(next) => handleSaveEdit(renaming, next)}
+        />
+      )}
     </div>
   );
 }
@@ -272,84 +281,6 @@ function totalsOf(t: MealTemplate) {
       calories: acc.calories + f.calories,
     }),
     { protein: 0, carbs: 0, fat: 0, calories: 0 },
-  );
-}
-
-function RenameDialog({
-  target,
-  onCancel,
-  onConfirm,
-}: {
-  target: MealTemplate | null;
-  onCancel: () => void;
-  onConfirm: (t: MealTemplate, newName: string) => void;
-}) {
-  const [name, setName] = useState("");
-
-  useEffect(() => {
-    if (!target) return;
-    // queueMicrotask defers the setState past the current effect's
-    // synchronous body and satisfies react-hooks/set-state-in-effect.
-    const captured = target.name;
-    queueMicrotask(() => setName(captured));
-  }, [target]);
-
-  return (
-    <Dialog
-      open={target !== null}
-      onOpenChange={(o) => {
-        if (!o) onCancel();
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Rename template</DialogTitle>
-          <DialogDescription>
-            This only changes the name; the foods and portions stay the same.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (target) onConfirm(target, name);
-          }}
-          className="space-y-3"
-        >
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="template-name"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              Name
-            </Label>
-            <Input
-              id="template-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              maxLength={100}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onCancel}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={
-                !target || name.trim() === "" || name.trim() === target.name
-              }
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 

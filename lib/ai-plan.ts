@@ -20,8 +20,13 @@ export type AiPlanRequest = {
    *  adjust. */
   refinement?: string;
   /** Optional: the meal plan the user wants adjusted. Required when
-   *  `refinement` is set; ignored otherwise. */
+   *  `refinement` is set or when `targetMealName` is set. */
   previousMeals?: Meal[];
+  /** Optional: regenerate only this meal slot, leaving the rest
+   *  unchanged. The AI returns just one meal; the caller replaces
+   *  the matching slot in the existing plan. Requires `previousMeals`
+   *  so the AI sees the day's context. */
+  targetMealName?: string;
 };
 
 /** Result of asking the AI for a meal plan. `kind: "ok"` always carries

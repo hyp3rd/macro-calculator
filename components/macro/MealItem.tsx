@@ -1,7 +1,13 @@
 "use client";
 
 import React from "react";
-import { BookmarkPlus, ChefHat, MoreHorizontal, Plus } from "lucide-react";
+import {
+  BookmarkPlus,
+  ChefHat,
+  MoreHorizontal,
+  Plus,
+  Sparkles,
+} from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -50,6 +56,14 @@ interface MealItemProps {
   onSaveAsTemplate: (mealId: number) => void;
   onAddFromTemplate: (mealId: number) => void;
   onApplyRecipe: (mealId: number) => void;
+  /** AI-regenerate ONLY this meal slot. The parent calls the
+   *  meal-plan route with `targetMealName` set and replaces just this
+   *  meal's foods on success. */
+  onRegenerate: (mealId: number) => void;
+  /** Shared busy state — disables the regenerate button while any AI
+   *  request is in flight (full-day generate, refiner pill, or
+   *  another single-meal regeneration). */
+  regenerating: boolean;
 }
 
 const MealItem: React.FC<MealItemProps> = ({
@@ -69,6 +83,8 @@ const MealItem: React.FC<MealItemProps> = ({
   onSaveAsTemplate,
   onAddFromTemplate,
   onApplyRecipe,
+  onRegenerate,
+  regenerating,
 }) => {
   const totalProtein = Math.round(
     meal.foods.reduce((s, f) => s + f.protein, 0),
@@ -120,6 +136,14 @@ const MealItem: React.FC<MealItemProps> = ({
               align="end"
               className="w-44"
             >
+              <DropdownMenuItem
+                onClick={() => onRegenerate(meal.id)}
+                disabled={regenerating}
+                className="gap-2"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+                Regenerate (AI)
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onAddFromTemplate(meal.id)}
                 className="gap-2"

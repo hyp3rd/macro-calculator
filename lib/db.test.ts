@@ -525,3 +525,133 @@ describe("computeSortBetween — fractional indexing for drag-and-drop", () => {
     }
   });
 });
+
+describe("deletion tombstones (Pass A — silent-resurrection bug)", () => {
+  it("writes a tombstone when deleteCustomFood is called", async () => {
+    const { addCustomFood, deleteCustomFood, listDeletions } = await freshDb();
+    const id = await addCustomFood({
+      name: "Whey",
+      protein: 80,
+      carbs: 8,
+      fat: 2,
+      calories: 370,
+    });
+
+    await deleteCustomFood(id);
+
+    const tombstones = await listDeletions();
+    expect(tombstones).toHaveLength(1);
+    expect(tombstones[0].storeName).toBe("customFoods");
+    expect(tombstones[0].rowKey).toBe(id);
+    expect(tombstones[0]._key).toBe(`customFoods:${id}`);
+  });
+
+  it("writes a tombstone for each deletable store type", async () => {
+    const {
+      addCustomFood,
+      deleteCustomFood,
+      saveMealTemplate,
+      deleteMealTemplate,
+      addRecipe,
+      deleteRecipe,
+      saveDailyLog,
+      deleteDailyLog,
+      saveWeightEntry,
+      deleteWeightEntry,
+      listDeletions,
+    } = await freshDb();
+
+    const foodId = await addCustomFood({
+      name: "x",
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      calories: 0,
+    });
+    const tmplId = await saveMealTemplate({ name: "t", foods: [] });
+    const recipeId = await addRecipe({ name: "r", ingredients: [] });
+    await saveDailyLog("2026-05-13", []);
+    await saveWeightEntry("2026-05-13", 80);
+
+    await deleteCustomFood(foodId);
+    await deleteMealTemplate(tmplId);
+    await deleteRecipe(recipeId);
+    await deleteDailyLog("2026-05-13");
+    await deleteWeightEntry("2026-05-13");
+
+    const tombs = await listDeletions();
+    const stores = tombs.map((t) => t.storeName).sort();
+    expect(stores).toEqual([
+      "customFoods",
+      "dailyLogs",
+      "mealTemplates",
+      "recipes",
+      "weightHistory",
+    ]);
+  });
+
+  it("applyServerDeletion removes the row WITHOUT writing a tombstone (realtime echo path)", async () => {
+    const {
+      addCustomFood,
+      applyServerDeletion,
+      listCustomFoods,
+      listDeletions,
+    } = await freshDb();
+    const id = await addCustomFood({
+      name: "Whey",
+      protein: 80,
+      carbs: 8,
+      fat: 2,
+      calories: 370,
+    });
+
+    await applyServerDeletion("customFoods", id);
+
+    // The IDB row is gone…
+    expect(await listCustomFoods()).toHaveLength(0);
+    // …and crucially no tombstone was written. (If realtime's DELETE
+    // handler wrote a tombstone we'd echo a redundant DELETE back to
+    // the server on the next sync.)
+    expect(await listDeletions()).toHaveLength(0);
+  });
+
+  it("applyServerDeletion also clears a pre-existing tombstone (delete already in flight, peer confirmed)", async () => {
+    const {
+      addCustomFood,
+      deleteCustomFood,
+      applyServerDeletion,
+      listDeletions,
+    } = await freshDb();
+    const id = await addCustomFood({
+      name: "Whey",
+      protein: 80,
+      carbs: 8,
+      fat: 2,
+      calories: 370,
+    });
+
+    await deleteCustomFood(id); // tombstone written
+    expect(await listDeletions()).toHaveLength(1);
+
+    // Realtime then echoes our own DELETE (or a peer's). The
+    // tombstone is now redundant.
+    await applyServerDeletion("customFoods", id);
+    expect(await listDeletions()).toHaveLength(0);
+  });
+
+  it("clearAllStores wipes pending tombstones along with the data (delete-account flow)", async () => {
+    const { addCustomFood, deleteCustomFood, clearAllStores, listDeletions } =
+      await freshDb();
+    const id = await addCustomFood({
+      name: "Whey",
+      protein: 80,
+      carbs: 8,
+      fat: 2,
+      calories: 370,
+    });
+    await deleteCustomFood(id);
+
+    await clearAllStores();
+    expect(await listDeletions()).toHaveLength(0);
+  });
+});

@@ -1,26 +1,42 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useUser } from "@/hooks/use-user";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { triggerSync } from "@/lib/sync";
+import { discardPendingChanges, triggerSync } from "@/lib/sync";
 import { useSyncSnapshot } from "@/lib/sync-status";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Check, Cloud, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, Check, Cloud, Loader2, Trash2 } from "lucide-react";
 
 /** Sync indicator + manual trigger shown in the topbar. Only renders when
  * a user is signed in — when signed out the sync engine isn't running so
- * there's nothing useful to report. Clicking re-runs the sync; while a
- * sync is in flight the button is disabled and `triggerSync` no-ops.
+ * there's nothing useful to report. Clicking the pill re-runs the sync;
+ * while a sync is in flight the button is disabled and `triggerSync`
+ * no-ops.
  *
- * Four lifecycle states (idle / syncing / synced / error) layered with a
- * pending-writes indicator that shows whenever local IDB has changes the
- * server hasn't seen yet. Pending and the lifecycle state are independent:
- * a user can have pending writes while the engine is idle, synced, or
- * errored — they all surface the "Pending" label rather than reverting to
- * "Synced". A successful sync clears the counter. */
+ * Lifecycle states (idle / syncing / synced / error / conflict) layered
+ * with a pending-writes indicator that shows whenever local IDB has
+ * changes the server hasn't seen yet. Pending and the lifecycle state
+ * are independent: a user can have pending writes while the engine is
+ * idle, synced, or errored — they all surface the "Pending" label.
+ *
+ * When pending > 0 (or in the conflict state) a small companion
+ * "Discard" button is shown next to the pill — for users who want to
+ * throw away unsaved local edits and accept the server's state. */
 export function SyncStatusPill() {
   const { user } = useUser();
   const { status, pending } = useSyncSnapshot();
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
 
   if (!user) return null;
 
@@ -28,8 +44,17 @@ export function SyncStatusPill() {
     if (!user) return;
     const supabase = getSupabaseBrowser();
     if (!supabase) return;
-    // Errors are surfaced via sync-status; nothing to do with the promise.
     void triggerSync(supabase, user.id);
+  }
+
+  async function onConfirmDiscard() {
+    setDiscardConfirmOpen(false);
+    if (!user) return;
+    const supabase = getSupabaseBrowser();
+    if (!supabase) return;
+    // Errors are surfaced via sync-status; nothing to do with the
+    // promise here.
+    void discardPendingChanges(supabase, user.id);
   }
 
   const styles =
@@ -62,15 +87,27 @@ export function SyncStatusPill() {
   if (status.state === "conflict") {
     const n = status.count;
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(styles, "text-amber-700 dark:text-amber-400")}
-        title={`${n} change${n === 1 ? "" : "s"} from this device weren't saved — another device edited the same row${n === 1 ? "" : "s"} first. Click to retry.`}
-      >
-        <AlertTriangle className="h-3 w-3" />
-        Conflict ({n})
-      </button>
+      <>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={onClick}
+            className={cn(styles, "text-amber-700 dark:text-amber-400")}
+            title={`${n} change${n === 1 ? "" : "s"} from this device weren't saved — another device edited the same row${n === 1 ? "" : "s"} first. Click to retry.`}
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Conflict ({n})
+          </button>
+          <DiscardButton onClick={() => setDiscardConfirmOpen(true)} />
+        </div>
+        <DiscardConfirmDialog
+          open={discardConfirmOpen}
+          onOpenChange={setDiscardConfirmOpen}
+          onConfirm={onConfirmDiscard}
+          count={pending}
+          context="conflict"
+        />
+      </>
     );
   }
 
@@ -82,18 +119,30 @@ export function SyncStatusPill() {
           ? ` (sync error: ${status.message})`
           : "";
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(styles, "text-foreground")}
-        title={`${pending} unsynced change${pending === 1 ? "" : "s"} on this device${titleSuffix} — click to sync now`}
-      >
-        <span
-          className="h-1.5 w-1.5 rounded-full bg-amber-500"
-          aria-hidden
+      <>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={onClick}
+            className={cn(styles, "text-foreground")}
+            title={`${pending} unsynced change${pending === 1 ? "" : "s"} on this device${titleSuffix} — click to sync now`}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-amber-500"
+              aria-hidden
+            />
+            Pending
+          </button>
+          <DiscardButton onClick={() => setDiscardConfirmOpen(true)} />
+        </div>
+        <DiscardConfirmDialog
+          open={discardConfirmOpen}
+          onOpenChange={setDiscardConfirmOpen}
+          onConfirm={onConfirmDiscard}
+          count={pending}
+          context="pending"
         />
-        Pending
-      </button>
+      </>
     );
   }
 
@@ -135,4 +184,66 @@ export function SyncStatusPill() {
         </button>
       );
   }
+}
+
+/** Small trash-icon button rendered next to the pending / conflict pill.
+ *  Triggers the confirm dialog rather than discarding immediately —
+ *  this throws away user data and one-click would be too easy to
+ *  mis-fire on touch screens. */
+function DiscardButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+      title="Discard local changes"
+      aria-label="Discard local changes"
+    >
+      <Trash2 className="h-3 w-3" />
+    </button>
+  );
+}
+
+function DiscardConfirmDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+  count,
+  context,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  onConfirm: () => void;
+  count: number;
+  context: "pending" | "conflict";
+}) {
+  const noun = count === 1 ? "change" : "changes";
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={onOpenChange}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Discard {count} local {noun}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {context === "conflict"
+              ? `These ${noun} couldn't be saved because another device edited the same data first. Discarding accepts the other device's version and throws away your local edit${count === 1 ? "" : "s"}.`
+              : `Throws away every unsaved edit on this device and re-pulls the latest data from the server. The other devices are unaffected. This can't be undone.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onConfirm}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Discard {noun}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
