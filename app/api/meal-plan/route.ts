@@ -23,14 +23,23 @@ import Anthropic from "@anthropic-ai/sdk";
 // feedback below. Cost is materially higher per token but iteration
 // counts stay flat (1–3) and prompt caching offsets the system prefix.
 const MODEL: Anthropic.Model = "claude-sonnet-4-6";
-/** Hard ceiling on the agent loop. Each iteration is one Anthropic call
- * + (optionally) one OFF search. Realistic plans land in 1–3 iterations.
- * On the very last iteration we force `tool_choice: submit_meal_plan` so
- * the loop is *guaranteed* to exit with a plan rather than time out. */
-const MAX_ITERATIONS = 5;
+/** Vercel function timeout cap (seconds). The serverless default is too
+ *  short for a multi-iteration Sonnet loop — without this the route
+ *  504s before the agent finishes, masquerading as a generic "AI
+ *  failed". 60s is the Hobby-tier ceiling and the Pro default; bump
+ *  per your plan limits if you need longer. */
+export const maxDuration = 60;
+/** Hard ceiling on the agent loop. Each Sonnet iteration runs 3–8 s
+ *  (vs 1–2 s on Haiku), so we cap lower than the recipes route. The
+ *  validator gives the model concrete feedback in one shot — most
+ *  retries succeed on the first correction, so 3 iterations is plenty
+ *  while leaving headroom under `maxDuration`. The forced
+ *  `tool_choice: submit_meal_plan` on the final iteration still
+ *  guarantees a plan rather than a timeout. */
+const MAX_ITERATIONS = 3;
 /** Per-iteration response cap. Tool-call responses are tiny (a JSON
- * payload + maybe a sentence of preamble); 1024 is plenty and keeps
- * each round-trip under ~2 s on Haiku 4.5. */
+ *  payload + maybe a sentence of preamble); 1024 is plenty under
+ *  Sonnet's longer-output tendency too. */
 const MAX_TOKENS_PER_ITERATION = 1024;
 
 type RequestBody = {
