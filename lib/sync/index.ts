@@ -810,7 +810,7 @@ async function pullRecipes(
     supabase
       .from("recipes")
       .select(
-        "id, user_id, name, ingredients, cuisine, notes, sort_order, created_at, updated_at",
+        "id, user_id, name, ingredients, cuisine, notes, sort_order, share_slug, share_visibility, created_at, updated_at",
       )
       .eq("user_id", userId)
       .abortSignal(signal),

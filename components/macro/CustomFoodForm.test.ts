@@ -24,14 +24,11 @@ describe("validateBreakdown — sub-macros vs total macros invariants", () => {
     expect(err).toMatch(/carbs/);
   });
 
-  it("rejects sugars + fiber > carbs (both subsets of total carbs)", () => {
-    const err = validateBreakdown({
-      ...EMPTY,
-      carbs: 30,
-      sugars: 20,
-      fiber: 15,
-    });
-    expect(err).toMatch(/Sugars/);
+  it("accepts fiber > carbs (EU labels report carbs excluding fiber)", () => {
+    // High-fiber bran cereals routinely show, on EU packaging,
+    // numbers like carbs 25g / fiber 35g per 100 g. Enforcing
+    // fiber ≤ carbs would reject the real label.
+    expect(validateBreakdown({ ...EMPTY, carbs: 25, fiber: 35 })).toBeNull();
   });
 
   it("rejects added sugars > total sugars (added is a subset of total)", () => {
@@ -64,14 +61,12 @@ describe("validateBreakdown — sub-macros vs total macros invariants", () => {
     expect(err).toMatch(/total fat/);
   });
 
-  it("tolerates ≤ 0.5 g label-rounding overshoot", () => {
-    // 12 + 4 = 16 — just barely over the 15 g carbs, within tolerance.
+  it("tolerates ≤ 0.5 g label-rounding overshoot on sugars vs carbs", () => {
+    // 15.3 vs 15 — within the 0.5 g tolerance, accepted.
+    expect(validateBreakdown({ ...EMPTY, carbs: 15, sugars: 15.3 })).toBeNull();
+    // 15.7 vs 15 — over the tolerance, rejected.
     expect(
-      validateBreakdown({ ...EMPTY, carbs: 15, sugars: 12, fiber: 3.4 }),
-    ).toBeNull();
-    // 16.6 vs 15 → over tolerance → rejected.
-    expect(
-      validateBreakdown({ ...EMPTY, carbs: 15, sugars: 12, fiber: 4.6 }),
+      validateBreakdown({ ...EMPTY, carbs: 15, sugars: 15.7 }),
     ).not.toBeNull();
   });
 
