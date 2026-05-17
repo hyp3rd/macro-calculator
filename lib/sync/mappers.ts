@@ -238,6 +238,10 @@ export type RecipeRow = {
    *  rows are visible to anon via the `recipes_public_read_shared`
    *  RLS policy (migration 0009). */
   share_slug?: string | null;
+  /** Visibility of the share (migration 0010). Only meaningful when
+   *  share_slug is set. `null` for legacy rows is treated as
+   *  `'public'` by the RLS policies. */
+  share_visibility?: "public" | "members" | "disabled" | null;
   created_at: string;
   updated_at: string;
 };
@@ -255,6 +259,7 @@ export function recipeToRow(
     notes: recipe.notes ?? null,
     sort_order: recipe.sortOrder ?? null,
     share_slug: recipe.shareSlug ?? null,
+    share_visibility: recipe.shareVisibility ?? null,
     created_at: new Date(recipe.createdAt).toISOString(),
   };
 }
@@ -272,6 +277,7 @@ export function recipeFromRow(row: RecipeRow): Recipe & { sortOrder?: number } {
     notes: row.notes ?? undefined,
     sortOrder: row.sort_order ?? undefined,
     shareSlug: row.share_slug ?? undefined,
+    shareVisibility: row.share_visibility ?? undefined,
     createdAt: Date.parse(row.created_at),
     updatedAt: Date.parse(row.updated_at),
   };

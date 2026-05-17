@@ -11,6 +11,10 @@ on conflict (id) do nothing;
 -- access; downloads happen via signed URLs minted server-side or via
 -- supabase.storage.download() while a session is active.
 
+-- `create policy if not exists` requires Postgres 16+. Use the
+-- drop-then-create pattern so the migration is idempotent on every
+-- supported Postgres version.
+drop policy if exists "exports_owner_select" on storage.objects;
 create policy "exports_owner_select"
   on storage.objects for select
   using (
@@ -18,6 +22,7 @@ create policy "exports_owner_select"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
+drop policy if exists "exports_owner_insert" on storage.objects;
 create policy "exports_owner_insert"
   on storage.objects for insert
   with check (
@@ -25,6 +30,7 @@ create policy "exports_owner_insert"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
+drop policy if exists "exports_owner_update" on storage.objects;
 create policy "exports_owner_update"
   on storage.objects for update
   using (
@@ -36,6 +42,7 @@ create policy "exports_owner_update"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
+drop policy if exists "exports_owner_delete" on storage.objects;
 create policy "exports_owner_delete"
   on storage.objects for delete
   using (

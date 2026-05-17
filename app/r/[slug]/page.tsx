@@ -1,24 +1,26 @@
 import type { RecipeIngredient } from "@/components/macro/types";
 import { isValidShareSlug } from "@/lib/share-slug";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, LockKeyhole } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { RecipePageActions } from "./RecipePageActions";
 
-/** Public recipe view at `/r/<slug>`. Anyone with the URL can view —
- *  the `recipes_public_read_shared` RLS policy (migration 0009) opens
- *  a read window for rows where share_slug IS NOT NULL. Server-
- *  rendered so the page works without JS and is print-friendly out of
- *  the box.
+/** Public recipe view at `/r/<slug>`. Visibility is enforced by the
+ *  RLS policies in migration 0010:
  *
- *  Signed-in visitors get an "Import to my recipes" button that posts
- *  to `/api/recipes/import/[slug]` and inserts a fresh copy owned by
- *  them. Signed-out visitors get a "Sign in to import" link. Both
- *  variants live in [RecipePageActions.tsx](./RecipePageActions.tsx)
- *  because they need client state (auth) and we want the page shell
- *  itself to stay a Server Component. */
+ *    - `'public'`   — anon + authenticated can read
+ *    - `'members'`  — authenticated only; anon hits the read window
+ *                     and gets nothing back
+ *    - `'disabled'` — only the owner can read (via owner-all policy)
+ *
+ *  This page does a single bound-by-current-session SELECT. If the row
+ *  comes back, we render. If it doesn't, we render a friendly "not
+ *  available" panel with a Sign-in CTA — that recovers the
+ *  members-only-viewed-by-anon case (signing in unlocks the read) and
+ *  reads as a generic 404 for the truly-not-found / disabled cases.
+ *  Signed-in visitors get the import CTA via [RecipePageActions.tsx]
+ *  (./RecipePageActions.tsx). */
 
 type SharedRecipe = {
   name: string;
@@ -37,6 +39,15 @@ async function fetchShared(slug: string): Promise<SharedRecipe | null> {
     .eq("share_slug", slug)
     .maybeSingle();
   return (data as SharedRecipe) ?? null;
+}
+
+async function currentUserId(): Promise<string | null> {
+  const supabase = await getSupabaseServer();
+  if (!supabase) return null;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
 }
 
 export async function generateMetadata({
@@ -65,7 +76,13 @@ export default async function PublicRecipePage({
   const { slug } = await params;
   const recipe = await fetchShared(slug);
   if (!recipe) {
-    notFound();
+    const userId = await currentUserId();
+    return (
+      <UnavailablePanel
+        slug={slug}
+        signedIn={userId !== null}
+      />
+    );
   }
 
   const totals = recipe.ingredients.reduce(
@@ -196,6 +213,57 @@ export default async function PublicRecipePage({
         </Link>
         . Macros are estimates — verify against actual product labels.
       </footer>
+    </div>
+  );
+}
+
+/** Catch-all "you can't see this" panel. Same UI for three reasons:
+ *
+ *   - The slug doesn't exist (typo, never minted).
+ *   - The owner revoked or disabled the share.
+ *   - The share is members-only and the visitor isn't signed in.
+ *
+ *  We don't disambiguate to avoid leaking that a slug *exists* but is
+ *  hidden — that's information one OFF visit could have inferred but
+ *  the page should remain neutral. The sign-in CTA gives the
+ *  members-only case a viable path forward (after sign-in, the same
+ *  URL renders normally) without telling anyone it's the cause.
+ *  Signed-in visitors don't see the CTA — for them, the answer is
+ *  definitely "this link doesn't work for you." */
+function UnavailablePanel({
+  slug,
+  signedIn,
+}: {
+  slug: string;
+  signedIn: boolean;
+}) {
+  return (
+    <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 py-10 text-center">
+      <LockKeyhole className="h-10 w-10 text-muted-foreground/60" />
+      <h1 className="mt-4 text-lg font-semibold tracking-tight">
+        Recipe not available
+      </h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        The link may have been revoked or disabled by the owner
+        {signedIn ? "." : ", or it may be visible to signed-in users only."}
+      </p>
+      <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+        {!signedIn && (
+          <Link
+            href={`/login?next=${encodeURIComponent(`/r/${slug}`)}`}
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Sign in
+          </Link>
+        )}
+        <Link
+          href="/"
+          className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-accent"
+        >
+          <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+          Back to app
+        </Link>
+      </div>
     </div>
   );
 }

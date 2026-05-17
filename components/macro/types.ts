@@ -107,13 +107,22 @@ export type Recipe = {
   cuisine?: string;
   /** Optional prep notes — ≤500 chars, plain text. */
   notes?: string;
-  /** When set, the recipe is publicly shared at `/r/<shareSlug>`. The
-   *  owner mints/revokes via the share dialog; everyone else just sees
-   *  the public page. `undefined` = not shared. */
+  /** When set, the recipe is shared at `/r/<shareSlug>`. The owner
+   *  mints/revokes via the share dialog; everyone else hits the
+   *  public page subject to `shareVisibility`. `undefined` = not
+   *  shared at all. */
   shareSlug?: string;
+  /** Who can resolve a shared link. Only meaningful when `shareSlug`
+   *  is set. `'public'` (default) = anyone with the URL; `'members'`
+   *  = signed-in users only; `'disabled'` = the slug exists but the
+   *  page 404s (lets the owner pause sharing without losing the URL).
+   *  Revoking via the share dialog clears `shareSlug` entirely. */
+  shareVisibility?: "public" | "members" | "disabled";
   createdAt: number;
   updatedAt: number;
 };
+
+export type ShareVisibility = NonNullable<Recipe["shareVisibility"]>;
 
 /** Mifflin-St Jeor only distinguishes between two formulas (+5 vs -161).
  * We keep the form inclusive — anyone who doesn't identify as male picks

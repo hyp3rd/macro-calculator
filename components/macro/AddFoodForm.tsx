@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Loader2, Plus, Save, ScanLine, Search } from "lucide-react";
+import { toast } from "sonner";
 import { Food, FoodItem, Meal } from "../../components/macro/types";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -14,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
+import { OffSavePreviewDialog } from "./OffSavePreviewDialog";
 
 interface AddFoodFormProps {
   meals: Meal[];
@@ -69,6 +71,44 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
   onOpenCustomFoodForm,
   onOpenCamera,
 }) => {
+  // Preview-and-save flow for OFF results — instead of one-click
+  // saving with just the search-result macros, the dialog fetches
+  // the full breakdown via `/api/off-barcode` and lets the user
+  // confirm. Holds the food being previewed; null = closed.
+  const [previewingOff, setPreviewingOff] = useState<Food | null>(null);
+
+  /** Wrapper around the parent's addFood: fires a toast describing
+   *  what just landed in which meal slot so the user has continuous
+   *  feedback when adding several foods in a row. The destination
+   *  meal name is looked up from `meals[selectedMealId]` so the
+   *  message stays specific. */
+  function handleAddFood() {
+    const trimmed = foodSearch.trim();
+    if (!trimmed) {
+      addFood();
+      return;
+    }
+    const destMealId = Number.parseInt(
+      newFood.selectedMealId?.toString() ?? "0",
+      10,
+    );
+    const dest = meals.find((m) => m.id === destMealId);
+    addFood();
+    if (dest) {
+      toast.success(
+        `Added ${trimmed} (${portionSize} g, ${newFood.calories} kcal) to ${dest.name}`,
+      );
+    }
+  }
+
+  /** Persist the (possibly enriched) OFF food via the parent's
+   *  callback, then surface the result as a toast. The parent
+   *  handler is responsible for the IDB write + sync bump. */
+  async function handleConfirmOffSave(food: Food) {
+    await onSaveOffToCustom(food);
+    toast.success(`Saved ${food.name} to My Foods`);
+  }
+
   return (
     <section
       id="add-food-form"
@@ -171,10 +211,11 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
                         variant="ghost"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSaveOffToCustom(food);
+                          setPreviewingOff(food);
                         }}
                         className="h-9 w-9 sm:h-8 sm:w-8"
-                        aria-label={`Save ${food.name} to my foods`}
+                        aria-label={`Preview and save ${food.name} to my foods`}
+                        title="Preview & save to My Foods"
                       >
                         <Save className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                       </Button>
@@ -272,7 +313,7 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
           </div>
           <Button
             type="button"
-            onClick={addFood}
+            onClick={handleAddFood}
             className="h-10 gap-1.5 sm:h-9"
           >
             <Plus className="h-4 w-4" />
@@ -280,6 +321,15 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
           </Button>
         </div>
       </div>
+
+      <OffSavePreviewDialog
+        open={previewingOff !== null}
+        onOpenChange={(o) => {
+          if (!o) setPreviewingOff(null);
+        }}
+        food={previewingOff}
+        onSave={handleConfirmOffSave}
+      />
     </section>
   );
 };

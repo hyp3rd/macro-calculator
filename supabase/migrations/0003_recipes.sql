@@ -4,7 +4,7 @@
 -- handles aggregation. Diet compatibility is derived on the client from each
 -- ingredient's dietKind snapshot — not stored — so it never drifts.
 
-create table public.recipes (
+create table if not exists public.recipes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
   name text not null,
@@ -14,15 +14,17 @@ create table public.recipes (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create index recipes_user_idx on public.recipes (user_id);
+create index if not exists recipes_user_idx on public.recipes (user_id);
 
 alter table public.recipes enable row level security;
 
+drop policy if exists "recipes_owner_all" on public.recipes;
 create policy "recipes_owner_all"
   on public.recipes
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
+drop trigger if exists recipes_set_updated_at on public.recipes;
 create trigger recipes_set_updated_at before update on public.recipes
   for each row execute function public.set_updated_at ();

@@ -8,7 +8,7 @@
 -- 5-minute expiry caps the attack window: a leaked session id only
 -- accepts uploads for that long.
 
-create table public.captures (
+create table if not exists public.captures (
   id uuid primary key default gen_random_uuid (),
   user_id uuid not null references auth.users (id) on delete cascade,
   -- 'photo' or 'barcode' once the phone uploads. NULL while waiting.
@@ -24,14 +24,15 @@ create table public.captures (
   expires_at timestamptz not null default now () + interval '5 minutes'
 );
 
-create index captures_user_idx on public.captures (user_id);
-create index captures_expires_idx on public.captures (expires_at);
+create index if not exists captures_user_idx on public.captures (user_id);
+create index if not exists captures_expires_idx on public.captures (expires_at);
 
 alter table public.captures enable row level security;
 
 -- Only the owner reads / updates / deletes their own session rows.
 -- The unauth POST routes (/barcode, /photo-done) bypass this via the
 -- service-role client, validating freshness in application code.
+drop policy if exists "captures_owner_all" on public.captures;
 create policy "captures_owner_all"
   on public.captures
   for all
@@ -46,6 +47,7 @@ insert into storage.buckets (id, name, public)
 values ('captures', 'captures', false)
 on conflict (id) do nothing;
 
+drop policy if exists "captures_owner_select" on storage.objects;
 create policy "captures_owner_select"
   on storage.objects for select
   using (
@@ -53,6 +55,7 @@ create policy "captures_owner_select"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
+drop policy if exists "captures_owner_insert" on storage.objects;
 create policy "captures_owner_insert"
   on storage.objects for insert
   with check (
@@ -60,6 +63,7 @@ create policy "captures_owner_insert"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
+drop policy if exists "captures_owner_update" on storage.objects;
 create policy "captures_owner_update"
   on storage.objects for update
   using (
@@ -71,6 +75,7 @@ create policy "captures_owner_update"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
+drop policy if exists "captures_owner_delete" on storage.objects;
 create policy "captures_owner_delete"
   on storage.objects for delete
   using (

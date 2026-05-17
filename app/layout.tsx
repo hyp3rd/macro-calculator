@@ -1,6 +1,7 @@
 import { ThemeProvider } from "@/components/theme-provider";
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
@@ -66,6 +67,17 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          {/* Toaster lives inside ThemeProvider so `theme="system"` picks
+              up the active class. `richColors` gives semantic green /
+              red for success / error variants. Position bottom-center
+              works well on both mobile (above the bottom nav, clear of
+              the keyboard) and desktop. */}
+          <Toaster
+            position="bottom-center"
+            richColors
+            closeButton
+            theme="system"
+          />
         </ThemeProvider>
         <SpeedInsights />
       </body>
