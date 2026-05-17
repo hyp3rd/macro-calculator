@@ -2,16 +2,33 @@ import type { DietPreference, Food } from "@/components/macro/types";
 import { foodDatabase } from "@/data/food-database";
 import { markLastBlockForCache } from "@/lib/ai/anthropic-helpers";
 import { getAnthropicConfig } from "@/lib/ai/env";
+import {
+  type EstimatedItem,
+  validatePhotoMacros,
+} from "@/lib/ai/photo-validator";
 import { buildNormIndex, matchPick } from "@/lib/ai/plan";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL: Anthropic.Model = "claude-haiku-4-5";
-/** Single-shot vision call — no agent loop. Vision input is the
- *  expensive part; one round trip is plenty for "identify what's in
- *  this picture". */
-const MAX_TOKENS = 1024;
+// Sonnet 4.6 — vision is the load-bearing capability here and Haiku 4.5
+// kept producing the same failure modes (collapsed composite dishes,
+// implausible portions, miscategorized condiments). Sonnet identifies
+// finer-grained foods and reacts well to validator feedback. The route
+// is auth-gated + AI-gated, so cost is bounded by signed-in usage.
+const MODEL: Anthropic.Model = "claude-sonnet-4-6";
+/** Vercel function timeout (seconds). Vision calls on Sonnet take
+ *  ~3–8s; with up to 3 iterations + tool round-trips we need headroom
+ *  above the default. 60s is the Hobby ceiling and the Pro default. */
+export const maxDuration = 60;
+/** Hard cap on the agent loop. Most photos resolve in one iteration;
+ *  the loop only retries when the macro-plausibility validator catches
+ *  something fishy. Forced-submit on the final iteration guarantees a
+ *  response. */
+const MAX_ITERATIONS = 3;
+/** Per-iteration response cap. The model returns a small JSON payload
+ *  plus optional preamble — 1024 tokens is plenty. */
+const MAX_TOKENS_PER_ITERATION = 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Anthropic's documented limit.
 
 /** A single food identified in the photo. The client uses per-100g +
@@ -65,14 +82,19 @@ type AiSubmittedFood = {
   };
 };
 
-/** Identify foods in a meal photo via Claude Haiku 4.5 vision. The model
- *  returns names + portion estimates; we resolve each against the seed
- *  catalog (built-in + the user's custom foods, no diet filter) using the
- *  same `matchPick` semantics as the meal-plan and recipe routes. Macros
- *  come from the catalog × grams — never from the model.
+type AiSubmission = { foods?: AiSubmittedFood[] };
+
+/** Identify foods in a meal photo via Claude Sonnet 4.6 vision in a
+ *  small agent loop. The model returns names + portion estimates + per-
+ *  100g macros; we resolve each name against the seed catalog using the
+ *  same `matchPick` semantics as the meal-plan and recipe routes.
+ *  Matched names use catalog macros (truth). Unmatched names use the
+ *  AI's per-100g estimates, but only after passing
+ *  `validatePhotoMacros` — implausible estimates (impossible macro
+ *  sums, kcal that doesn't match macros, oil claimed as protein) get
+ *  fed back to the model on retry.
  *
- *  Single Anthropic call (no agent loop). Auth-gated + AI-feature-gated
- *  like the other AI routes. */
+ *  Auth-gated + AI-feature-gated like the other AI routes. */
 export async function POST(req: Request): Promise<NextResponse> {
   // 1. Auth gate.
   const supabase = await getSupabaseServer();
@@ -134,7 +156,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   // 4. Build the catalog. NB: no diet filter here — the user is
   //    identifying what's already on the plate, not asking for
-  //    suggestions. Allergies still filter at the resolution layer.
+  //    suggestions.
   const catalog: Food[] = [...foodDatabase, ...(body.customFoods ?? [])];
   const catalogLines = catalog
     .map(
@@ -143,22 +165,51 @@ export async function POST(req: Request): Promise<NextResponse> {
     )
     .join("\n");
 
-  const systemPrompt = `You are identifying foods in a photograph the user took of food they're about to eat. For each visible item, estimate the portion in grams AND the per-100g macros.
+  const systemPrompt = `You are identifying foods in a photograph the user took of their meal before eating. Accuracy of portion grams matters more than completeness — a missed pickle is fine; a 600 g rice estimate for a 150 g portion is not.
 
-Rules:
-- When a visible food matches one in the seed catalog, USE THE EXACT CATALOG NAME (the server will use the catalog's macros, not your estimates, for matched names).
-- For foods not in the catalog, give a short natural name (e.g. "tomato", "white rice", "grilled salmon"). Your macro estimates WILL be used for these — be honest and reasonable.
-- Always include per-100g macros for every food, even ones in the catalog (we'll prefer catalog values when they match).
-- Estimate grams from visual cues — typical portion is 50–300 g per item; oils/sauces are smaller (5–30 g).
-- Typical macro ranges per 100 g: protein 0–30 g, carbs 0–80 g, fat 0–100 g, calories 0–900 kcal. A pure fat is mostly fat; a pure carb is mostly carbs; meats are mostly protein + fat.
-- Confidence: "high" if you're sure, "medium" if visually similar to alternatives, "low" if it's a guess.
-- Skip items you can't reasonably identify or estimate.
-- Return 1–8 foods total. Don't pad the list — fewer high-confidence items beats many low-confidence ones.
+Think through these steps before submitting:
 
-Seed catalog (per 100g):
+1. **Identify the container.** Plate, bowl, takeout box, cup? Note its approximate size — a dinner plate is ~25 cm / 10 in across, a side plate ~18 cm / 7 in, a coffee mug ~250 ml, a standard bowl ~400 ml. Use it as your visual ruler for the foods inside.
+
+2. **List each visible food, specifically.** "White rice" not "rice"; "grilled salmon" not "fish"; "scrambled egg" not "egg dish". When a food matches one in the seed catalog below, USE THE EXACT CATALOG NAME — the server will substitute the catalog's macros for yours.
+
+3. **Decompose composite dishes.** A sandwich is bread + filling + condiments, not one item. A burrito bowl is rice + beans + meat + salsa + cheese. A salad is greens + each topping + dressing. The user can edit the list but cannot recover detail you collapsed into a single name.
+
+4. **Estimate grams per food using the container as scale.** Common references:
+  - Plate fully covered, single layer of grain/pasta: ~100–150 g cooked
+  - Palm-sized portion of meat/fish (no thumb): ~100–120 g
+  - Standard mug of cooked rice (filled): ~200 g
+  - Cooked vegetables, side portion: ~80–150 g
+  - **Oils, dressings, sauces shown as a sheen or drizzle: 5–15 g — NOT 100 g.** A real "pour" of dressing is 20–30 g. Pure oil portions above ~50 g are almost never correct.
+  - Cooked grains/pasta/legumes are ~2.5–3× their raw weight. Estimate what you see (cooked weight), not the dry equivalent.
+  - Plain water, black coffee, plain tea: skip them (0 macros, no value to logging).
+
+5. **For each food, give per-100 g macros.** These are used only when the name doesn't match the catalog. Reality checks:
+  - Pure carbs (cooked rice, pasta, bread, potato): protein 2–10 g, fat 0–3 g, carbs 20–60 g, calories 100–350
+  - Meat / fish (chicken, beef, salmon, tuna, etc.): protein 18–30 g, carbs 0–2 g, fat 3–25 g, calories 100–300
+  - Pure fats (olive oil, butter, ghee, mayo): fat 80–100 g, protein/carbs ~0, calories 800–900
+  - Dairy: yogurt 4–10 g protein; cheese 20–30 g protein, 25–35 g fat
+  - Vegetables: low across the board, calories 15–60
+  - **The macro grams (P + C + F) must sum to ≤ 100 g per 100 g of food.** If your sum is over, your estimate is wrong.
+  - **Calories ≈ 4·P + 4·C + 9·F (within 30%).** If they don't match, recheck.
+
+6. **Confidence per food:**
+  - "high" — clearly identified, common food, portion accurate to ±20%
+  - "medium" — right category but ambiguous (e.g. "white fish" — cod or tilapia?), or portion is rough
+  - "low" — guess. Tag it so the user knows to verify or remove.
+
+7. **Skip anything you can't reasonably identify or estimate.** Better to return 4 high-confidence foods than 8 with two low-confidence guesses inflating the totals.
+
+8. **Pre-flight check before calling submit_meal_foods:**
+  - Have you decomposed every composite dish?
+  - Is every per-100 g macro sum ≤ 100 g?
+  - Do calories match macros for each food?
+  - Are any oils/dressings claimed at > 50 g portions? Recheck.
+
+Seed catalog (per 100 g):
 ${catalogLines}
 
-Submit your answer via submit_meal_foods and stop.`;
+When you're satisfied with the answer, call submit_meal_foods. The server validates your macros for plausibility — if it catches an error, it will reply with the specific issue and you should correct that food on the next call.`;
 
   const tool: Anthropic.Tool = {
     name: "submit_meal_foods",
@@ -204,9 +255,10 @@ Submit your answer via submit_meal_foods and stop.`;
     },
   };
 
-  // 5. Call Anthropic with the image content block. `markLastBlockForCache`
-  //    has handled `"image"` blocks since the helper was extracted — we
-  //    let it cache the prefix for free.
+  // 5. Initial user message — image + instruction. Cache the image
+  //    block so retry iterations don't re-pay for the (large) vision
+  //    input. The instruction text is separate so the model sees it as
+  //    its own block.
   const userMessage: Anthropic.MessageParam = {
     role: "user",
     content: [
@@ -226,107 +278,160 @@ Submit your answer via submit_meal_foods and stop.`;
   };
   markLastBlockForCache(userMessage);
 
+  // 6. Agent loop. Each iteration: model returns a submission, we
+  //    resolve names against the catalog, run the validator on the
+  //    AI-macro items, and either accept or feed the issues back.
   const anthropic = new Anthropic({ apiKey: ai.apiKey });
-  let response: Anthropic.Message;
-  try {
-    response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: [
-        {
-          type: "text",
-          text: systemPrompt,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      tools: [tool],
-      tool_choice: { type: "tool", name: "submit_meal_foods" },
-      messages: [userMessage],
-    });
-  } catch (err) {
-    if (err instanceof Anthropic.RateLimitError) {
-      return NextResponse.json(
-        { error: "AI is rate-limited. Try again shortly." },
-        { status: 429 },
-      );
-    }
-    if (err instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json(
-        { error: "AI authentication failed — check ANTHROPIC_API_KEY." },
-        { status: 503 },
-      );
-    }
-    const message = err instanceof Error ? err.message : "AI request failed.";
-    return NextResponse.json({ error: message }, { status: 502 });
-  }
-
-  // 6. Extract the tool_use block. tool_choice was forced, so this is
-  //    guaranteed unless the model misbehaves.
-  const toolUse = response.content.find(
-    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
-  );
-  if (!toolUse || toolUse.name !== "submit_meal_foods") {
-    return NextResponse.json(
-      {
-        error: `AI returned no submission (stop_reason=${response.stop_reason}).`,
-      },
-      { status: 502 },
-    );
-  }
-
-  const submitted = toolUse.input as { foods?: AiSubmittedFood[] };
-  const aiFoods = Array.isArray(submitted.foods) ? submitted.foods : [];
-
-  // 7. Resolve names against the catalog. Same matcher the meal-plan
-  //    and recipe routes use — normalized exact match + word-boundary
-  //    substring fallback (handles "rolled oats" → "Oats", etc).
-  //
-  //    Items that resolve to the catalog use catalog macros (truth).
-  //    Items that don't resolve fall back to the AI's per-100g
-  //    estimates so the user can still log them — the review dialog
-  //    surfaces these with an "AI estimate" badge and (optionally)
-  //    promotes them to custom foods on confirm so the next photo of
-  //    the same food matches the catalog instead.
+  const messages: Anthropic.MessageParam[] = [userMessage];
   const byNorm = buildNormIndex(catalog);
-  const resolved: ResolvedMealPhotoFood[] = [];
-  for (const item of aiFoods) {
-    if (
-      !item ||
-      typeof item.name !== "string" ||
-      typeof item.portionGrams !== "number"
-    ) {
-      continue;
-    }
-    const food = matchPick(item.name, catalog, byNorm);
-    if (food) {
-      resolved.push({
-        name: food.name,
-        per100g: {
-          protein: food.protein,
-          carbs: food.carbs,
-          fat: food.fat,
-          calories: food.calories,
-        },
-        portionGrams: clampGrams(item.portionGrams),
-        confidence: normalizeConfidence(item.confidence),
-        estimated: false,
+  let finalResolved: ResolvedMealPhotoFood[] | null = null;
+
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    const isLastIteration = iter === MAX_ITERATIONS - 1;
+    let response: Anthropic.Message;
+    try {
+      response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: MAX_TOKENS_PER_ITERATION,
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        tools: [tool],
+        tool_choice: { type: "tool", name: "submit_meal_foods" },
+        messages,
       });
+    } catch (err) {
+      if (err instanceof Anthropic.RateLimitError) {
+        return NextResponse.json(
+          { error: "AI is rate-limited. Try again shortly." },
+          { status: 429 },
+        );
+      }
+      if (err instanceof Anthropic.AuthenticationError) {
+        return NextResponse.json(
+          { error: "AI authentication failed — check ANTHROPIC_API_KEY." },
+          { status: 503 },
+        );
+      }
+      const message = err instanceof Error ? err.message : "AI request failed.";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
+
+    messages.push({ role: "assistant", content: response.content });
+
+    const toolUse = response.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+    );
+    if (!toolUse || toolUse.name !== "submit_meal_foods") {
+      return NextResponse.json(
+        {
+          error: `AI returned no submission (stop_reason=${response.stop_reason}).`,
+        },
+        { status: 502 },
+      );
+    }
+
+    const submitted = toolUse.input as AiSubmission;
+    const aiFoods = Array.isArray(submitted.foods) ? submitted.foods : [];
+
+    // Resolve names against the catalog AND collect AI-estimated items
+    // for plausibility validation. Matched items skip the validator —
+    // their macros come from the catalog, not the model.
+    const resolved: ResolvedMealPhotoFood[] = [];
+    const estimatedItems: { resolvedIndex: number; item: EstimatedItem }[] = [];
+
+    for (const item of aiFoods) {
+      if (
+        !item ||
+        typeof item.name !== "string" ||
+        typeof item.portionGrams !== "number"
+      ) {
+        continue;
+      }
+      const food = matchPick(item.name, catalog, byNorm);
+      if (food) {
+        resolved.push({
+          name: food.name,
+          per100g: {
+            protein: food.protein,
+            carbs: food.carbs,
+            fat: food.fat,
+            calories: food.calories,
+          },
+          portionGrams: clampGrams(item.portionGrams),
+          confidence: normalizeConfidence(item.confidence),
+          estimated: false,
+        });
+        continue;
+      }
+      const aiMacros = sanitizeMacros(item.macrosPer100g);
+      if (!aiMacros) continue;
+      const clampedGrams = clampGrams(item.portionGrams);
+      const resolvedIndex = resolved.length;
+      resolved.push({
+        name: cleanName(item.name),
+        per100g: aiMacros,
+        portionGrams: clampedGrams,
+        confidence: normalizeConfidence(item.confidence),
+        estimated: true,
+      });
+      estimatedItems.push({
+        resolvedIndex,
+        item: {
+          name: cleanName(item.name),
+          portionGrams: clampedGrams,
+          macros: aiMacros,
+        },
+      });
+    }
+
+    // Run the plausibility validator only on AI-estimated items.
+    const issues = validatePhotoMacros(estimatedItems.map((e) => e.item));
+
+    if (issues.length > 0 && !isLastIteration) {
+      // Feed the issues back as a tool_result is_error so the model
+      // self-corrects on the next iteration. Same pattern as the
+      // meal-plan route's coherence loop. The image stays cached on
+      // the initial user message — we only send the textual feedback.
+      const feedback: Anthropic.MessageParam = {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            is_error: true,
+            content: `The macros you submitted have plausibility problems. Fix them and submit again with corrected per-100g macros and/or portion grams.\n${issues
+              .map((i) => `- ${i.message}`)
+              .join("\n")}`,
+          },
+        ],
+      };
+      markLastBlockForCache(feedback);
+      messages.push(feedback);
       continue;
     }
-    // Unmatched — use AI macros. Skip the item if the model didn't
-    // supply usable macros (we'd rather drop than show all-zeros).
-    const aiMacros = sanitizeMacros(item.macrosPer100g);
-    if (!aiMacros) continue;
-    resolved.push({
-      name: cleanName(item.name),
-      per100g: aiMacros,
-      portionGrams: clampGrams(item.portionGrams),
-      confidence: normalizeConfidence(item.confidence),
-      estimated: true,
-    });
+
+    // Either no issues OR we've exhausted retries. Accept the
+    // submission as-is. Drop the worst-violating AI-estimated items on
+    // the final iteration if they still failed validation — we'd
+    // rather ship a shorter clean list than expose obviously-wrong
+    // macros to the user.
+    if (issues.length > 0 && isLastIteration) {
+      const badIndices = new Set(
+        issues.map((i) => estimatedItems[i.index]?.resolvedIndex ?? -1),
+      );
+      finalResolved = resolved.filter((_, i) => !badIndices.has(i));
+    } else {
+      finalResolved = resolved;
+    }
+    break;
   }
 
-  const out: ResolvedMealPhoto = { foods: resolved };
+  const out: ResolvedMealPhoto = { foods: finalResolved ?? [] };
   return NextResponse.json(out);
 }
 
