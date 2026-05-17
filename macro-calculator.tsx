@@ -331,7 +331,12 @@ const MacroCalculator = () => {
     setShowSuggestions(false);
   };
 
-  // Save an OFF result to the user's custom foods. Reuses macros as-is.
+  // Save an OFF result to the user's custom foods. The food may be
+  // the basic search-result shape OR the enriched barcode-lookup
+  // shape (preview dialog calls /api/off-barcode to fetch the full
+  // breakdown). Either way we pass through every optional macro that
+  // came along — search results sometimes carry breakdown fields
+  // too, and the barcode-enriched path always does.
   const handleSaveOffToCustom = async (food: Food) => {
     if (food.source !== "off") return;
     await addCustomFood({
@@ -341,6 +346,13 @@ const MacroCalculator = () => {
       fat: food.fat,
       calories: food.calories,
       brand: food.brand,
+      sugars: food.sugars,
+      addedSugars: food.addedSugars,
+      fiber: food.fiber,
+      saturatedFat: food.saturatedFat,
+      transFat: food.transFat,
+      monoFat: food.monoFat,
+      polyFat: food.polyFat,
     });
     bumpPending();
     setCustomFoodsRev((r) => r + 1);

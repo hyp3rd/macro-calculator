@@ -25,6 +25,7 @@ import { useDataRev } from "@/lib/sync/data-bus";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Eye,
   GripVertical,
   Pencil,
   Plus,
@@ -44,6 +45,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CustomFoodForm } from "./CustomFoodForm";
+import { FoodViewDialog } from "./FoodViewDialog";
 import { SortControl, sortByMode, useSortMode } from "./SortControl";
 import { useSortableRow } from "./useSortableRow";
 
@@ -56,6 +58,7 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
   const [query, setQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CustomFood | undefined>(undefined);
+  const [viewing, setViewing] = useState<CustomFood | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CustomFood | null>(null);
 
   async function refresh() {
@@ -241,6 +244,7 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
                     key={food.id}
                     food={food}
                     draggable={sortMode === "custom"}
+                    onView={() => setViewing(food)}
                     onEdit={() => {
                       setEditing(food);
                       setFormOpen(true);
@@ -279,6 +283,7 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
                         key={food.id}
                         food={food}
                         draggable={sortMode === "custom"}
+                        onView={() => setViewing(food)}
                         onEdit={() => {
                           setEditing(food);
                           setFormOpen(true);
@@ -304,6 +309,18 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
         onSaved={() => {
           onChange?.();
           refresh();
+        }}
+      />
+
+      <FoodViewDialog
+        open={viewing !== null}
+        onOpenChange={(o) => {
+          if (!o) setViewing(null);
+        }}
+        food={viewing}
+        onEdit={(f) => {
+          setEditing(f);
+          setFormOpen(true);
         }}
       />
 
@@ -342,11 +359,13 @@ export function MyFoodsView({ onChange }: { onChange?: () => void }) {
 function FoodMobileCard({
   food,
   draggable,
+  onView,
   onEdit,
   onDelete,
 }: {
   food: CustomFood;
   draggable: boolean;
+  onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -409,6 +428,17 @@ function FoodMobileCard({
           variant="ghost"
           size="icon"
           className="h-9 w-9 text-muted-foreground"
+          onClick={onView}
+          aria-label={`View ${food.name}`}
+          title="View details"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 text-muted-foreground"
           onClick={onEdit}
           aria-label={`Edit ${food.name}`}
         >
@@ -432,11 +462,13 @@ function FoodMobileCard({
 function FoodTableRow({
   food,
   draggable,
+  onView,
   onEdit,
   onDelete,
 }: {
   food: CustomFood;
   draggable: boolean;
+  onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -506,6 +538,17 @@ function FoodTableRow({
       </td>
       <td className="px-3 py-2.5 text-right">
         <div className="flex items-center justify-end gap-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground"
+            onClick={onView}
+            aria-label={`View ${food.name}`}
+            title="View details"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
           <Button
             type="button"
             variant="ghost"

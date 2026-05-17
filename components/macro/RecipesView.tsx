@@ -23,6 +23,7 @@ import { useDataRev } from "@/lib/sync/data-bus";
 import { useEffect, useMemo, useState } from "react";
 import {
   ChefHat,
+  Eye,
   GripVertical,
   Pencil,
   Plus,
@@ -45,6 +46,7 @@ import {
 } from "@dnd-kit/sortable";
 import { GenerateRecipeDialog } from "./GenerateRecipeDialog";
 import { RecipeForm, type RecipeDraft } from "./RecipeForm";
+import { RecipeViewDialog } from "./RecipeViewDialog";
 import { ShareRecipeDialog } from "./ShareRecipeDialog";
 import { SortControl, sortByMode, useSortMode } from "./SortControl";
 import { useSortableRow } from "./useSortableRow";
@@ -75,6 +77,8 @@ export function RecipesView({ profile }: Props) {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [editing, setEditing] = useState<RecipeDraft | undefined>(undefined);
   const [sharing, setSharing] = useState<Recipe | null>(null);
+  const [viewing, setViewing] = useState<Recipe | null>(null);
+  const [sharedOnly, setSharedOnly] = useState(false);
   const [sortMode, setSortMode] = useSortMode("sort:recipes", "recent");
   // Drag distance gate keeps the click handlers on the row (Edit /
   // Delete buttons) working even when the row is sortable — click on
@@ -102,12 +106,22 @@ export function RecipesView({ profile }: Props) {
     };
   }, [recipesRev]);
 
+  // Total shared count surfaces in the filter chip ("Shared (3)") so
+  // the user has a glance-able answer to "how many of my recipes are
+  // out in the world?" — computed off the full unfiltered list so the
+  // count doesn't move when the user types in the search box.
+  const sharedCount = useMemo(
+    () => recipes?.filter((r) => r.shareSlug).length ?? 0,
+    [recipes],
+  );
+
   const filtered = useMemo(() => {
     if (!recipes) return [];
     const q = search.trim().toLowerCase();
-    const matched = q
+    let matched = q
       ? recipes.filter((r) => r.name.toLowerCase().includes(q))
       : recipes;
+    if (sharedOnly) matched = matched.filter((r) => r.shareSlug);
     return sortByMode(matched, sortMode, {
       sortOrder: (r) => r.sortOrder,
       typeKey: (r) => r.cuisine,
@@ -115,7 +129,7 @@ export function RecipesView({ profile }: Props) {
       // rather than created — matches the current default behavior.
       recentField: (r) => r.updatedAt,
     });
-  }, [recipes, search, sortMode]);
+  }, [recipes, search, sharedOnly, sortMode]);
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -255,11 +269,37 @@ export function RecipesView({ profile }: Props) {
             className="pl-9"
           />
         </div>
-        <SortControl
-          modes={["recent", "name", "type", "custom"]}
-          active={sortMode}
-          onChange={setSortMode}
-        />
+        <div className="flex items-center gap-2">
+          {/* Shared filter chip. Hidden when there are no shared
+              recipes — no point offering a filter that matches
+              nothing. The count is computed off the unfiltered list
+              so it doesn't move when the search box changes. */}
+          {sharedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setSharedOnly((v) => !v)}
+              aria-pressed={sharedOnly}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 ${
+                sharedOnly
+                  ? "border-foreground/40 bg-accent text-foreground"
+                  : "border-border/60 bg-background text-muted-foreground hover:bg-accent/40"
+              }`}
+              title={
+                sharedOnly
+                  ? "Show all recipes"
+                  : `Show only the ${sharedCount} shared recipe${sharedCount === 1 ? "" : "s"}`
+              }
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Shared ({sharedCount})
+            </button>
+          )}
+          <SortControl
+            modes={["recent", "name", "type", "custom"]}
+            active={sortMode}
+            onChange={setSortMode}
+          />
+        </div>
       </div>
 
       {recipes === null ? (
@@ -272,7 +312,9 @@ export function RecipesView({ profile }: Props) {
           <p className="mt-2 text-sm text-muted-foreground">
             {recipes.length === 0
               ? "No recipes yet. Build one manually, or have the AI suggest one based on your diet."
-              : "No recipes match your search."}
+              : sharedOnly
+                ? "No shared recipes match your search."
+                : "No recipes match your search."}
           </p>
         </div>
       ) : (
@@ -291,6 +333,7 @@ export function RecipesView({ profile }: Props) {
                   key={r.id}
                   recipe={r}
                   draggable={sortMode === "custom"}
+                  onView={() => setViewing(r)}
                   onEdit={() => {
                     setEditing(r);
                     setFormOpen(true);
@@ -329,6 +372,17 @@ export function RecipesView({ profile }: Props) {
         }}
         recipe={sharing}
       />
+      <RecipeViewDialog
+        open={viewing !== null}
+        onOpenChange={(o) => {
+          if (!o) setViewing(null);
+        }}
+        recipe={viewing}
+        onEdit={(r) => {
+          setEditing(r);
+          setFormOpen(true);
+        }}
+      />
     </div>
   );
 }
@@ -336,12 +390,14 @@ export function RecipesView({ profile }: Props) {
 function SortableRecipeRow({
   recipe,
   draggable,
+  onView,
   onEdit,
   onShare,
   onDelete,
 }: {
   recipe: Recipe & { sortOrder?: number };
   draggable: boolean;
+  onView: () => void;
   onEdit: () => void;
   onShare: () => void;
   onDelete: () => void;
@@ -397,6 +453,17 @@ function SortableRecipeRow({
           )}
         </div>
       </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 sm:h-8 sm:w-8"
+        onClick={onView}
+        aria-label={`View ${recipe.name}`}
+        title="View details"
+      >
+        <Eye className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+      </Button>
       <Button
         type="button"
         variant="ghost"
