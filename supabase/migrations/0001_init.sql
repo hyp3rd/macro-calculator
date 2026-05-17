@@ -77,31 +77,31 @@ alter table public.weight_history enable row level security;
 alter table public.custom_foods enable row level security;
 alter table public.meal_templates enable row level security;
 
-create policy if not exists "profiles_owner_all"
+create policy "profiles_owner_all"
   on public.profiles
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy if not exists "daily_logs_owner_all"
+create policy "daily_logs_owner_all"
   on public.daily_logs
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy if not exists "weight_history_owner_all"
+create policy "weight_history_owner_all"
   on public.weight_history
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy if not exists "custom_foods_owner_all"
+create policy "custom_foods_owner_all"
   on public.custom_foods
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy if not exists "meal_templates_owner_all"
+create policy "meal_templates_owner_all"
   on public.meal_templates
   for all
   using (user_id = auth.uid ())
