@@ -8,7 +8,7 @@ create extension if not exists "pgcrypto";
 -- One row per user. The `payload` is the full PersonalInfo object so adding
 -- profile fields doesn't require schema changes — this is a personal app,
 -- not analytics, so a JSON blob is the right ergonomic tradeoff.
-create table public.profiles (
+create table if not exists public.profiles (
   user_id uuid primary key references auth.users (id) on delete cascade,
   payload jsonb not null,
   updated_at timestamptz not null default now()
@@ -18,7 +18,7 @@ create table public.profiles (
 -- (user, YYYY-MM-DD) → meals array. Date is a text key rather than `date`
 -- so it round-trips identically to what the client uses (no timezone games
 -- when shipping rows back and forth).
-create table public.daily_logs (
+create table if not exists public.daily_logs (
   user_id uuid not null references auth.users (id) on delete cascade,
   date text not null check (date ~ '^\d{4}-\d{2}-\d{2}$'),
   meals jsonb not null,
@@ -27,7 +27,7 @@ create table public.daily_logs (
 );
 
 -- ─── weight_history ────────────────────────────────────────────────────────
-create table public.weight_history (
+create table if not exists public.weight_history (
   user_id uuid not null references auth.users (id) on delete cascade,
   date text not null check (date ~ '^\d{4}-\d{2}-\d{2}$'),
   kg double precision not null check (kg > 0 and kg < 500),
@@ -40,7 +40,7 @@ create table public.weight_history (
 -- The local IDB autoincrements id; in Postgres we use a UUID so multiple
 -- devices can mint ids without colliding. The local id stays in IDB for
 -- in-memory references; the cloud row carries a separate `id`.
-create table public.custom_foods (
+create table if not exists public.custom_foods (
   id uuid primary key default gen_random_uuid (),
   user_id uuid not null references auth.users (id) on delete cascade,
   name text not null,
@@ -57,7 +57,7 @@ create table public.custom_foods (
 create index custom_foods_user_idx on public.custom_foods (user_id);
 
 -- ─── meal_templates ────────────────────────────────────────────────────────
-create table public.meal_templates (
+create table if not exists public.meal_templates (
   id uuid primary key default gen_random_uuid (),
   user_id uuid not null references auth.users (id) on delete cascade,
   name text not null,
@@ -77,31 +77,31 @@ alter table public.weight_history enable row level security;
 alter table public.custom_foods enable row level security;
 alter table public.meal_templates enable row level security;
 
-create policy "profiles_owner_all"
+create policy if not exists "profiles_owner_all"
   on public.profiles
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy "daily_logs_owner_all"
+create policy if not exists "daily_logs_owner_all"
   on public.daily_logs
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy "weight_history_owner_all"
+create policy if not exists "weight_history_owner_all"
   on public.weight_history
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy "custom_foods_owner_all"
+create policy if not exists "custom_foods_owner_all"
   on public.custom_foods
   for all
   using (user_id = auth.uid ())
   with check (user_id = auth.uid ());
 
-create policy "meal_templates_owner_all"
+create policy if not exists "meal_templates_owner_all"
   on public.meal_templates
   for all
   using (user_id = auth.uid ())

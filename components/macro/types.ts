@@ -107,6 +107,10 @@ export type Recipe = {
   cuisine?: string;
   /** Optional prep notes — ≤500 chars, plain text. */
   notes?: string;
+  /** When set, the recipe is publicly shared at `/r/<shareSlug>`. The
+   *  owner mints/revokes via the share dialog; everyone else just sees
+   *  the public page. `undefined` = not shared. */
+  shareSlug?: string;
   createdAt: number;
   updatedAt: number;
 };
