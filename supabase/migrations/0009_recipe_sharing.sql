@@ -23,7 +23,11 @@ create index if not exists recipes_share_slug_idx
 -- Public read policy: anyone can SELECT a row when its share_slug is
 -- set. The existing recipes_owner_all policy still gives owners full
 -- access; this just opens a read-only window for shared rows.
-create policy if not exists "recipes_public_read_shared"
+-- NOTE: 0010 supersedes this policy (drops + replaces it with two
+-- audience-scoped policies). It's kept here for historical accuracy
+-- so a fresh-bootstrap apply produces a coherent intermediate state.
+drop policy if exists "recipes_public_read_shared" on public.recipes;
+create policy "recipes_public_read_shared"
   on public.recipes
   for select
   to anon, authenticated

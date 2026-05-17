@@ -32,7 +32,8 @@ alter table public.captures enable row level security;
 -- Only the owner reads / updates / deletes their own session rows.
 -- The unauth POST routes (/barcode, /photo-done) bypass this via the
 -- service-role client, validating freshness in application code.
-create policy if not exists "captures_owner_all"
+drop policy if exists "captures_owner_all" on public.captures;
+create policy "captures_owner_all"
   on public.captures
   for all
   using (user_id = auth.uid ())
@@ -46,21 +47,24 @@ insert into storage.buckets (id, name, public)
 values ('captures', 'captures', false)
 on conflict (id) do nothing;
 
-create policy if not exists "captures_owner_select"
+drop policy if exists "captures_owner_select" on storage.objects;
+create policy "captures_owner_select"
   on storage.objects for select
   using (
     bucket_id = 'captures'
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
-create policy if not exists "captures_owner_insert"
+drop policy if exists "captures_owner_insert" on storage.objects;
+create policy "captures_owner_insert"
   on storage.objects for insert
   with check (
     bucket_id = 'captures'
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
-create policy if not exists "captures_owner_update"
+drop policy if exists "captures_owner_update" on storage.objects;
+create policy "captures_owner_update"
   on storage.objects for update
   using (
     bucket_id = 'captures'
@@ -71,7 +75,8 @@ create policy if not exists "captures_owner_update"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
-create policy if not exists "captures_owner_delete"
+drop policy if exists "captures_owner_delete" on storage.objects;
+create policy "captures_owner_delete"
   on storage.objects for delete
   using (
     bucket_id = 'captures'

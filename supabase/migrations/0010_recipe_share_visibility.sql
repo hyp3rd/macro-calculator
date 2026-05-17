@@ -30,6 +30,8 @@ update public.recipes
 -- owner's full-access policy (recipes_owner_all) still wins for the
 -- owner's own rows regardless of visibility.
 drop policy if exists "recipes_public_read_shared" on public.recipes;
+drop policy if exists "recipes_anon_read_public_shared" on public.recipes;
+drop policy if exists "recipes_auth_read_visible_shared" on public.recipes;
 
 create policy "recipes_anon_read_public_shared"
   on public.recipes

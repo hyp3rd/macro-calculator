@@ -18,7 +18,8 @@ create index if not exists recipes_user_idx on public.recipes (user_id);
 
 alter table public.recipes enable row level security;
 
-create policy if not exists "recipes_owner_all"
+drop policy if exists "recipes_owner_all" on public.recipes;
+create policy "recipes_owner_all"
   on public.recipes
   for all
   using (user_id = auth.uid ())
