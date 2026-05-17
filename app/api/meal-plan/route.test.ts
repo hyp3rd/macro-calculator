@@ -260,6 +260,127 @@ describe("/api/meal-plan POST — agent-loop hardening", () => {
     expect(firstUser.content[0].cache_control).toEqual({ type: "ephemeral" });
   });
 
+  it("retries when the submitted plan trips a coherence rule and accepts the corrected plan", async () => {
+    // Turn 1: standalone-fat lunch (only Olive Oil). The validator's
+    // standalone-fat rule must catch it and feed back a tool_result
+    // is_error citing the rule. Turn 2: corrected to a multi-food
+    // plan — accepted, 200 response.
+    const captured: Array<{ messages: unknown[] }> = [];
+    const scripted = [
+      {
+        id: "m1",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "submit_meal_plan",
+            input: {
+              meals: [
+                {
+                  name: "Breakfast",
+                  foods: [{ name: "Olive Oil", portionGrams: 65 }],
+                },
+              ],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      {
+        id: "m2",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "submit_meal_plan",
+            input: {
+              meals: [
+                {
+                  name: "Breakfast",
+                  foods: [
+                    { name: "Oats", portionGrams: 60 },
+                    { name: "Greek Yogurt", portionGrams: 200 },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+    ];
+    mockCreate.mockImplementation(async (params: { messages: unknown[] }) => {
+      captured.push(structuredClone(params));
+      const next = scripted.shift();
+      if (!next) throw new Error("unexpected extra mockCreate call");
+      return next;
+    });
+
+    const res = await POST(makeRequest(SAMPLE_BODY));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      meals: { foods: unknown[] }[];
+      coherenceIssues?: unknown;
+    };
+    expect(json.meals[0].foods.length).toBeGreaterThan(0);
+    // The accepted plan is clean → no coherenceIssues in response.
+    expect(json.coherenceIssues).toBeUndefined();
+
+    // Turn 2 must have seen an is_error tool_result naming the rule's
+    // complaint (standalone fat / "pure fat, not a meal").
+    expect(captured).toHaveLength(2);
+    const turn2 = captured[1].messages;
+    const lastUserMsg = turn2[turn2.length - 1] as {
+      role: string;
+      content: Array<{ type: string; is_error?: boolean; content?: string }>;
+    };
+    expect(lastUserMsg.role).toBe("user");
+    const errBlock = lastUserMsg.content[0];
+    expect(errBlock.type).toBe("tool_result");
+    expect(errBlock.is_error).toBe(true);
+    expect(errBlock.content).toMatch(/pure fat/);
+  });
+
+  it("accepts a flawed plan on the final iteration and attaches coherenceIssues to the response", async () => {
+    // Every iteration the model submits the same standalone-fat plan.
+    // The forced-submit on the final iteration accepts it; the
+    // response carries `coherenceIssues` so the client can warn the
+    // user rather than silently shipping the bad plan.
+    const badPlan = {
+      id: "msg-bad",
+      content: [
+        {
+          type: "tool_use",
+          id: "t-bad",
+          name: "submit_meal_plan",
+          input: {
+            meals: [
+              {
+                name: "Breakfast",
+                foods: [{ name: "Olive Oil", portionGrams: 65 }],
+              },
+            ],
+          },
+        },
+      ],
+      stop_reason: "tool_use",
+    };
+    // MAX_ITERATIONS = 5 — the route will keep retrying up to that
+    // many times. Seed the mock with enough copies (with unique ids
+    // since structuredClone can't share references across calls).
+    mockCreate.mockImplementation(async () => structuredClone(badPlan));
+
+    const res = await POST(makeRequest(SAMPLE_BODY));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      meals: { foods: unknown[] }[];
+      coherenceIssues?: Array<{ code: string; message: string }>;
+    };
+    expect(json.meals[0].foods.length).toBeGreaterThan(0);
+    expect(Array.isArray(json.coherenceIssues)).toBe(true);
+    expect(json.coherenceIssues?.[0].code).toBe("standalone-fat");
+  });
+
   it("passes refinement + previousMeals into the system prompt and the user message", async () => {
     // Refiner pills (e.g. "Lower sugars") fire a request with these two
     // optional fields. The AI must see the refinement as an extra rule
