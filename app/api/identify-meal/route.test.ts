@@ -307,4 +307,134 @@ describe("/api/identify-meal POST", () => {
     const res = await POST(makeRequest(SAMPLE_BODY));
     expect(res.status).toBe(503);
   });
+
+  it("retries when the plausibility validator catches implausible AI macros and accepts the corrected submission", async () => {
+    // Turn 1: model claims a totally implausible per-100g macro set
+    // for an unknown food (sum > 100g and kcal mismatch).
+    // Turn 2: model fixes both. The route resolves the corrected
+    // submission and returns 200.
+    const captured: Array<{ messages: unknown[] }> = [];
+    const scripted = [
+      {
+        id: "m1",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "submit_meal_foods",
+            input: {
+              foods: [
+                {
+                  name: "Mystery casserole",
+                  portionGrams: 200,
+                  confidence: "low",
+                  macrosPer100g: {
+                    protein: 50,
+                    carbs: 50,
+                    fat: 50, // sum = 150g, impossible
+                    calories: 999,
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      {
+        id: "m2",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "submit_meal_foods",
+            input: {
+              foods: [
+                {
+                  name: "Tuna casserole",
+                  portionGrams: 200,
+                  confidence: "medium",
+                  macrosPer100g: {
+                    protein: 12,
+                    carbs: 10,
+                    fat: 5,
+                    calories: 130,
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+    ];
+    mockCreate.mockImplementation(async (params: { messages: unknown[] }) => {
+      captured.push(structuredClone(params));
+      const next = scripted.shift();
+      if (!next) throw new Error("unexpected extra mockCreate call");
+      return next;
+    });
+
+    const res = await POST(makeRequest(SAMPLE_BODY));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      foods: Array<{ name: string; estimated: boolean }>;
+    };
+    expect(json.foods).toHaveLength(1);
+    expect(json.foods[0].name).toBe("Tuna casserole");
+    expect(json.foods[0].estimated).toBe(true);
+
+    // Turn 2 must have seen an is_error tool_result naming the
+    // plausibility rule's complaint ("impossible" / "100 g").
+    expect(captured).toHaveLength(2);
+    const turn2 = captured[1].messages;
+    const lastUserMsg = turn2[turn2.length - 1] as {
+      role: string;
+      content: Array<{ type: string; is_error?: boolean; content?: string }>;
+    };
+    expect(lastUserMsg.role).toBe("user");
+    const errBlock = lastUserMsg.content[0];
+    expect(errBlock.type).toBe("tool_result");
+    expect(errBlock.is_error).toBe(true);
+    expect(errBlock.content).toMatch(/impossible/);
+  });
+
+  it("drops AI-estimated items that still fail validation on the final iteration", async () => {
+    // Every call returns the same implausible per-100g macros. After
+    // exhausting MAX_ITERATIONS (3), the route returns 200 with the
+    // bad item dropped — better than shipping garbage to the review
+    // dialog.
+    const badSubmission = {
+      id: "m-bad",
+      content: [
+        {
+          type: "tool_use",
+          id: "t-bad",
+          name: "submit_meal_foods",
+          input: {
+            foods: [
+              {
+                name: "Unknown dish",
+                portionGrams: 100,
+                confidence: "low",
+                macrosPer100g: {
+                  protein: 60,
+                  carbs: 60,
+                  fat: 60, // sum 180g — fails plausibility every time
+                  calories: 999,
+                },
+              },
+            ],
+          },
+        },
+      ],
+      stop_reason: "tool_use",
+    };
+    mockCreate.mockImplementation(async () => structuredClone(badSubmission));
+
+    const res = await POST(makeRequest(SAMPLE_BODY));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { foods: unknown[] };
+    expect(json.foods).toHaveLength(0);
+  });
 });
