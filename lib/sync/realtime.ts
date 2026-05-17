@@ -7,11 +7,7 @@ import {
   applyServerProfile,
   applyServerRecipe,
   applyServerWeightEntry,
-  deleteCustomFood,
-  deleteDailyLog,
-  deleteMealTemplate,
-  deleteRecipe,
-  deleteWeightEntry,
+  applyServerDeletion,
   getProfileRecord,
 } from "@/lib/db";
 import type {
@@ -206,7 +202,7 @@ async function handleProfile(payload: LoosePayload) {
 async function handleDailyLog(payload: LoosePayload) {
   if (payload.eventType === "DELETE") {
     const old = payload.old as Partial<DailyLogRow> | undefined;
-    if (old?.date) await deleteDailyLog(old.date);
+    if (old?.date) await applyServerDeletion("dailyLogs", old.date);
     notifyDataChanged("dailyLogs");
     return;
   }
@@ -221,7 +217,7 @@ async function handleDailyLog(payload: LoosePayload) {
 async function handleWeight(payload: LoosePayload) {
   if (payload.eventType === "DELETE") {
     const old = payload.old as Partial<WeightRow> | undefined;
-    if (old?.date) await deleteWeightEntry(old.date);
+    if (old?.date) await applyServerDeletion("weightHistory", old.date);
     notifyDataChanged("weightHistory");
     return;
   }
@@ -236,7 +232,7 @@ async function handleWeight(payload: LoosePayload) {
 async function handleCustomFood(payload: LoosePayload) {
   if (payload.eventType === "DELETE") {
     const old = payload.old as Partial<CustomFoodRow> | undefined;
-    if (old?.id) await deleteCustomFood(old.id);
+    if (old?.id) await applyServerDeletion("customFoods", old.id);
     notifyDataChanged("customFoods");
     return;
   }
@@ -250,7 +246,7 @@ async function handleCustomFood(payload: LoosePayload) {
 async function handleMealTemplate(payload: LoosePayload) {
   if (payload.eventType === "DELETE") {
     const old = payload.old as Partial<MealTemplateRow> | undefined;
-    if (old?.id) await deleteMealTemplate(old.id);
+    if (old?.id) await applyServerDeletion("mealTemplates", old.id);
     notifyDataChanged("mealTemplates");
     return;
   }
@@ -264,7 +260,7 @@ async function handleMealTemplate(payload: LoosePayload) {
 async function handleRecipe(payload: LoosePayload) {
   if (payload.eventType === "DELETE") {
     const old = payload.old as Partial<RecipeRow> | undefined;
-    if (old?.id) await deleteRecipe(old.id);
+    if (old?.id) await applyServerDeletion("recipes", old.id);
     notifyDataChanged("recipes");
     return;
   }

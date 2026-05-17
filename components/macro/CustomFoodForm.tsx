@@ -205,6 +205,17 @@ function Form({
       setError("Name is required");
       return;
     }
+    // Validate the optional macro-breakdown against the main macros.
+    // The four reasonable invariants: sugars + fiber ≤ carbs (both are
+    // *subsets* of total carbs), added ≤ total sugars, and the four
+    // fat subtypes sum to no more than total fat. The "≤" margin
+    // tolerates small rounding errors (0.5 g) since label data is
+    // notoriously imprecise.
+    const breakdownError = validateBreakdown(draft);
+    if (breakdownError) {
+      setError(breakdownError);
+      return;
+    }
     setSaving(true);
     try {
       // Helper: empty string → undefined so the persisted row's
@@ -458,4 +469,54 @@ function OptionalNumberField({
       />
     </div>
   );
+}
+
+/** Per-100g sub-macro invariants the form enforces on save:
+ *
+ *    sugars + fiber  ≤  carbs    (both are subsets of total carbs)
+ *    addedSugars     ≤  sugars   (added is a subset of total sugars)
+ *    sat+trans+mono+poly ≤ fat   (the four subtypes sum to ≤ total fat)
+ *
+ *  Empty (= unknown) sub-macros are skipped in their sum. A 0.5 g
+ *  margin is allowed to absorb label-rounding error — packaged-food
+ *  labels routinely round each line to the nearest gram so the parts
+ *  can legitimately overshoot the whole by a small fraction.
+ *
+ *  Exported so unit tests can pin the boundary conditions. */
+export function validateBreakdown(draft: {
+  carbs: number;
+  fat: number;
+  sugars: number | "";
+  addedSugars: number | "";
+  fiber: number | "";
+  saturatedFat: number | "";
+  transFat: number | "";
+  monoFat: number | "";
+  polyFat: number | "";
+}): string | null {
+  const TOLERANCE = 0.5;
+  const num = (v: number | "") => (v === "" ? 0 : v);
+  const sugars = num(draft.sugars);
+  const fiber = num(draft.fiber);
+  const added = num(draft.addedSugars);
+  const sat = num(draft.saturatedFat);
+  const trans = num(draft.transFat);
+  const mono = num(draft.monoFat);
+  const poly = num(draft.polyFat);
+
+  if (sugars + fiber > draft.carbs + TOLERANCE) {
+    return `Sugars (${sugars} g) + fiber (${fiber} g) can't exceed total carbs (${draft.carbs} g).`;
+  }
+  if (added > sugars + TOLERANCE) {
+    // Two flavors of this error so the message is specific.
+    if (draft.sugars === "") {
+      return `Added sugars (${added} g) requires total sugars to be set first.`;
+    }
+    return `Added sugars (${added} g) can't exceed total sugars (${sugars} g).`;
+  }
+  const fatSum = sat + trans + mono + poly;
+  if (fatSum > draft.fat + TOLERANCE) {
+    return `Saturated + trans + mono- + poly-unsat (${fatSum} g) can't exceed total fat (${draft.fat} g).`;
+  }
+  return null;
 }

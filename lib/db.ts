@@ -8,7 +8,7 @@ import type {
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 
 const DB_NAME = "macro-calculator";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 const STORE_CUSTOM_FOODS = "customFoods";
 const STORE_PROFILE = "profile";
@@ -16,6 +16,12 @@ const STORE_DAILY_LOGS = "dailyLogs";
 const STORE_MEAL_TEMPLATES = "mealTemplates";
 const STORE_WEIGHT_HISTORY = "weightHistory";
 const STORE_RECIPES = "recipes";
+/** Deletion tombstones. Each entry records "the user deleted row X
+ *  from store Y; the sync engine still needs to propagate the delete
+ *  to the server". Without this store the silent-resurrection bug:
+ *  user deletes a template locally → sync's pull pass queries the
+ *  server, sees the row, writes it back into IDB. */
+const STORE_DELETIONS = "deletions";
 
 /** Single record key under the `profile` store. We only support one
  * profile in phase 2; this constant makes that explicit. */
@@ -51,6 +57,28 @@ export type Versioned = {
  *  for rows the user hasn't manually positioned yet; those sort by
  *  `createdAt` as the fallback. */
 export type Sortable = { sortOrder?: number };
+
+/** Stores that the sync engine can push DELETEs to. Profile is
+ *  excluded (single-row per user; the only deletion is "delete
+ *  account" which goes through its own server route). */
+export type DeletableStore =
+  | "customFoods"
+  | "mealTemplates"
+  | "recipes"
+  | "dailyLogs"
+  | "weightHistory";
+
+/** A tombstone — "delete this row on the server next sync." Composite
+ *  key `<store>:<rowKey>` so the same row id across different stores
+ *  can't collide. `rowKey` is whatever the store's natural key is:
+ *  UUID for custom_foods / meal_templates / recipes; date string for
+ *  daily_logs / weight_history. */
+export type DeletionRecord = {
+  _key: string;
+  storeName: DeletableStore;
+  rowKey: string;
+  deletedAt: number;
+};
 
 /** Stored custom food. Macros are per 100g; the id is a client-minted
  * UUID so the same record can exist in IndexedDB and Supabase under the
@@ -130,6 +158,7 @@ interface MacroDB extends DBSchema {
     value: Recipe & Versioned & Sortable;
     indexes: { byName: string };
   };
+  [STORE_DELETIONS]: { key: string; value: DeletionRecord };
 }
 
 let dbPromise: Promise<IDBPDatabase<MacroDB>> | null = null;
@@ -247,6 +276,12 @@ function getDB(): Promise<IDBPDatabase<MacroDB>> {
           })();
         }
       }
+      // v7 → v8: deletion-tombstones store. Additive — no data to
+      // migrate. The store starts empty; tombstones accumulate as
+      // the user deletes rows after the upgrade.
+      if (oldVersion < 8) {
+        db.createObjectStore(STORE_DELETIONS, { keyPath: "_key" });
+      }
     },
   });
   return dbPromise;
@@ -344,6 +379,7 @@ export async function searchCustomFoods(
 export async function deleteCustomFood(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_CUSTOM_FOODS, id);
+  await recordDeletion("customFoods", id);
 }
 
 export function customToFood(c: CustomFood): Food {
@@ -490,6 +526,7 @@ export async function listDailyLogs(): Promise<DailyLog[]> {
 export async function deleteDailyLog(date: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_DAILY_LOGS, date);
+  await recordDeletion("dailyLogs", date);
 }
 
 /** Sync-layer hook: write a server-pulled daily log. Marks the row
@@ -602,6 +639,7 @@ export async function listMealTemplates(): Promise<MealTemplate[]> {
 export async function deleteMealTemplate(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_MEAL_TEMPLATES, id);
+  await recordDeletion("mealTemplates", id);
 }
 
 // ─── Weight history ────────────────────────────────────────────────────────
@@ -670,6 +708,7 @@ export async function listWeightEntries(): Promise<WeightEntry[]> {
 export async function deleteWeightEntry(date: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_WEIGHT_HISTORY, date);
+  await recordDeletion("weightHistory", date);
 }
 
 // ─── Recipes ───────────────────────────────────────────────────────────────
@@ -749,6 +788,7 @@ export async function listRecipes(): Promise<
 export async function deleteRecipe(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORE_RECIPES, id);
+  await recordDeletion("recipes", id);
 }
 
 // ─── Sort order (custom drag-and-drop) ────────────────────────────────────
@@ -801,6 +841,86 @@ export function computeSortBetween(
   return (a + b) / 2;
 }
 
+// ─── Deletion tombstones ──────────────────────────────────────────────────
+
+/** Record that the user wants `rowKey` in `storeName` deleted. The
+ *  sync engine drains the tombstone store on every push, issuing the
+ *  matching `supabase.from(table).delete().eq(...)` and removing the
+ *  tombstone on success. Each deleteX function in this module calls
+ *  this, so the delete propagates without the consumer needing to
+ *  know anything about sync. */
+async function recordDeletion(
+  storeName: DeletableStore,
+  rowKey: string,
+): Promise<void> {
+  const db = await getDB();
+  const key = `${storeName}:${rowKey}`;
+  await db.put(STORE_DELETIONS, {
+    _key: key,
+    storeName,
+    rowKey,
+    deletedAt: Date.now(),
+  });
+}
+
+/** Sync-layer hook: every pending deletion. */
+export async function listDeletions(): Promise<DeletionRecord[]> {
+  const db = await getDB();
+  return db.getAll(STORE_DELETIONS);
+}
+
+/** Sync-layer hook: drop a tombstone after the server-side delete
+ *  succeeded. Safe to call on a key that doesn't exist. */
+export async function clearDeletion(
+  storeName: DeletableStore,
+  rowKey: string,
+): Promise<void> {
+  const db = await getDB();
+  await db.delete(STORE_DELETIONS, `${storeName}:${rowKey}`);
+}
+
+/** Realtime echo + initial-sync interaction: if a peer device deleted
+ *  a row we *also* have a tombstone for, the tombstone is now
+ *  redundant — both sides agree the row is gone. Clear it so we don't
+ *  re-send the delete. Same shape as `clearDeletion`; named separately
+ *  to make the call sites in the sync engine read clearly. */
+export async function clearTombstoneIfPresent(
+  storeName: DeletableStore,
+  rowKey: string,
+): Promise<void> {
+  await clearDeletion(storeName, rowKey);
+}
+
+/** Silent local-only delete used by the realtime DELETE handler (and
+ *  the sync pull when we discover a row is gone server-side). Removes
+ *  the IDB row WITHOUT writing a tombstone — we'd otherwise echo a
+ *  redundant DELETE back to the server. Also wipes any pre-existing
+ *  tombstone for the same key, since the server has already confirmed
+ *  the row's deletion. */
+export async function applyServerDeletion(
+  storeName: DeletableStore,
+  rowKey: string,
+): Promise<void> {
+  const db = await getDB();
+  const storeMap: Record<DeletableStore, string> = {
+    customFoods: STORE_CUSTOM_FOODS,
+    mealTemplates: STORE_MEAL_TEMPLATES,
+    recipes: STORE_RECIPES,
+    dailyLogs: STORE_DAILY_LOGS,
+    weightHistory: STORE_WEIGHT_HISTORY,
+  };
+  await db.delete(
+    storeMap[storeName] as
+      | typeof STORE_CUSTOM_FOODS
+      | typeof STORE_MEAL_TEMPLATES
+      | typeof STORE_RECIPES
+      | typeof STORE_DAILY_LOGS
+      | typeof STORE_WEIGHT_HISTORY,
+    rowKey,
+  );
+  await clearTombstoneIfPresent(storeName, rowKey);
+}
+
 // ─── Bulk ──────────────────────────────────────────────────────────────────
 
 /** Wipes every store. Used by the Delete account flow so a future sign-in
@@ -818,6 +938,7 @@ export async function clearAllStores(): Promise<void> {
       STORE_MEAL_TEMPLATES,
       STORE_WEIGHT_HISTORY,
       STORE_RECIPES,
+      STORE_DELETIONS,
     ],
     "readwrite",
   );
@@ -828,6 +949,7 @@ export async function clearAllStores(): Promise<void> {
     tx.objectStore(STORE_MEAL_TEMPLATES).clear(),
     tx.objectStore(STORE_WEIGHT_HISTORY).clear(),
     tx.objectStore(STORE_RECIPES).clear(),
+    tx.objectStore(STORE_DELETIONS).clear(),
     tx.done,
   ]);
 }

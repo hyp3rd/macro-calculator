@@ -29,6 +29,7 @@ words:
   - cutover
   - Dedup
   - dedups
+  - deleteable
   - desaturated
   - describedby
   - dismissable
@@ -56,6 +57,7 @@ words:
   - Maqro
   - maxage
   - Mifflin
+  - misconfig
   - noeng
   - nonbinary
   - nums
@@ -72,12 +74,14 @@ words:
   - Postgrest
   - pubname
   - qrcode
+  - renderable
   - roledescription
   - schemaname
   - sparkline
   - summarise
   - supabase
   - TDEE
+  - tmpl
   - Topbar
   - trivago
   - Turbopack

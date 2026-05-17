@@ -47,6 +47,12 @@ type RequestBody = {
    *  UI uses (id, name, foods). The AI sees the foods + portions and
    *  is asked to apply the refinement on top. */
   previousMeals?: Meal[];
+  /** Optional: regenerate ONLY this meal slot, leaving the others
+   *  unchanged. Must match one of the `mealNames` exactly (e.g.
+   *  "Breakfast"). Requires `previousMeals` so the AI knows what's
+   *  on the rest of the day's plate; the client then replaces only
+   *  this slot in the returned plan. */
+  targetMealName?: string;
 };
 
 /** Generate a coherent one-day meal plan using Claude Haiku 4.5 in a
@@ -171,22 +177,46 @@ export async function POST(req: Request): Promise<NextResponse> {
     ? `\n\nThe user wants the following adjustment to the plan you previously suggested below: ${refinement}\nApply this refinement while keeping the macros close to the targets above and respecting the same allergies / diet / cuisine constraints. You may keep meals that already satisfy the refinement unchanged; only swap or adjust the ones that don't.`
     : "";
 
-  const systemPrompt = `You are a meal planner. Design a one-day plan that approximately hits the daily macro targets while keeping food combinations coherent and culturally appropriate per meal.
+  // Single-meal regeneration: the user wants only one slot rebuilt
+  // (the "regenerate this meal" sparkles button in the meal planner).
+  // We tell the AI explicitly to return ONLY that meal — saves tokens
+  // and avoids accidentally clobbering meals the user is keeping. The
+  // client merges the returned single meal into the right slot.
+  const targetMealName = (body.targetMealName ?? "").trim();
+  const targetMealBlock = targetMealName
+    ? `\n\nYou are regenerating ONE meal slot only: "${targetMealName}". The other meals are shown below as fixed context — DO NOT change or include them. Your submit_meal_plan call MUST contain exactly one meal in the \`meals\` array, with \`name\` set to "${targetMealName}". Keep this meal's macros sensible relative to the day's overall targets minus what the other meals already contribute (don't try to over-balance — just propose a good-looking meal in the same culinary register as the rest of the day).`
+    : "";
 
-Rules:
-- Coherence matters more than perfect macro precision. Breakfast should feel like breakfast; dinner like dinner. Don't pair olive oil + tuna + oats for breakfast.
-- Use 2–4 foods per meal. Snacks can be 1–2.
+  const systemPrompt = `You are a meal planner and a competent home cook. Design a one-day plan that approximately hits the daily macro targets while producing meals a real person would actually eat — culturally coherent, palatable, and properly composed.
+
+PALATABILITY RULES (these matter more than hitting macros perfectly):
+
+Every meal must form a recognizable dish or a sensible plate. A "meal" is not a list of macros — it's food. Apply these tests before submitting:
+
+- **No standalone fats.** Olive oil, butter, ghee, etc. are condiments / cooking media. They are NEVER a meal on their own and NEVER a snack on their own. If you want them in the macros, attach them to a real food: "salad with olive oil dressing", "rice with butter".
+- **One protein per meal, with rare exceptions.** Don't mix two meats / two fishes / meat-and-fish in the same meal unless it's culturally normal (surf-and-turf is fine; pangasius + salmon is not). A meal with salmon AND pangasius reads as a bug.
+- **Snacks must be snacks people actually eat.** Acceptable snack patterns: a piece of fruit; nuts; yogurt; cheese with crackers; a protein bar. UNACCEPTABLE: raw fish in a snack, oil in a snack, cheese + fish + berries. If you can't picture eating it standing up between meals, it's not a snack.
+- **Coherence by meal slot.** Breakfast = breakfast foods (oats, eggs, yogurt, toast, fruit, smoothies, pancakes). Dinner = dinner foods (proteins + grains + vegetables, soups, stews, pasta dishes). Don't put dinner foods at breakfast or breakfast foods at dinner.
+- **No naked carbs / naked protein.** A meal of only rice is not a meal. A meal of only chicken breast is not a meal. Pair carbs + protein + a vegetable or fat for every main meal.
+- **Cuisine consistency within a meal.** If a meal leans Japanese, don't add parmesan. If it leans Mexican, don't add miso. Mixed-cuisine *days* are fine; mixed-cuisine single *meals* are not.
+
+OTHER RULES:
+
+- Use 2–4 foods per main meal. Snacks can be 1–2 foods.
 - Distribution: ${distributionHint}
 - ${cuisineLine}
 - ${allergyLine}
-- ${dislikeLine}${refinementBlock}
+- ${dislikeLine}${refinementBlock}${targetMealBlock}
 
-How to find foods:
+FOOD LOOKUP:
+
 - A small seed catalog is provided below — use these when they fit.
 - When the seed catalog doesn't cover the cuisines or specific foods you want, CALL the \`search_open_food_facts\` tool. Use it AT MOST 1–2 times total per plan — each call adds latency. Search with concrete queries (e.g. "kimchi", "harissa chickpeas") — broad queries like "food" don't work well.
 - ALL portions are in grams. Macros are per 100g.
 - AS SOON as you have enough foods to fill the requested meal slots, CALL \`submit_meal_plan\`. Do not over-search. The seed catalog alone is usually sufficient.
 - Use the EXACT \`name\` field of each food (from the seed catalog or from an OFF result you saw earlier in this conversation) so the server can match it.
+
+BEFORE SUBMITTING, re-read your plan and ask: "would I actually serve this to a friend?" If any meal fails that test, fix it before calling submit_meal_plan.
 
 Seed catalog (per 100g):
 ${catalogLines}`;
@@ -204,27 +234,44 @@ ${catalogLines}`;
   // list the AI can see — far more useful than asking it to re-derive
   // a plan from scratch when only a constraint changed. Skipped when
   // there's no previousMeals (i.e. a fresh generation).
-  const previousMealsBlock =
-    refinement &&
+  // Render the previous meals as a bullet list when either a
+  // refinement OR a single-meal regeneration is in flight — both
+  // need the AI to see what's already on the rest of the day's
+  // plate. Fresh generations (no refinement, no target) skip the
+  // block to save tokens.
+  const needsPreviousMeals =
+    (refinement || targetMealName) &&
     Array.isArray(body.previousMeals) &&
-    body.previousMeals.length > 0
-      ? `\n\nPreviously suggested plan (to adjust per the refinement above):\n${body.previousMeals
-          .map((m) => {
-            const items =
-              m.foods.length === 0
-                ? "  (empty)"
-                : m.foods
-                    .map(
-                      (f) =>
-                        `  - ${f.name} (${f.portionSize ?? 100} g, ${Math.round(
-                          f.calories,
-                        )} kcal)`,
-                    )
-                    .join("\n");
-            return `${m.name}:\n${items}`;
-          })
-          .join("\n")}`
-      : "";
+    body.previousMeals.length > 0;
+  const previousMealsLabel = targetMealName
+    ? `\n\nThe other meals (DO NOT change or include them in your response):`
+    : `\n\nPreviously suggested plan (to adjust per the refinement above):`;
+  const previousMealsBlock = needsPreviousMeals
+    ? `${previousMealsLabel}\n${(body.previousMeals ?? [])
+        .filter(
+          (m) =>
+            // When regenerating a single slot, omit the target itself
+            // from the "other meals" context — the AI is rebuilding it
+            // from scratch, no need to anchor on what was there.
+            !targetMealName ||
+            m.name.toLowerCase() !== targetMealName.toLowerCase(),
+        )
+        .map((m) => {
+          const items =
+            m.foods.length === 0
+              ? "  (empty)"
+              : m.foods
+                  .map(
+                    (f) =>
+                      `  - ${f.name} (${f.portionSize ?? 100} g, ${Math.round(
+                        f.calories,
+                      )} kcal)`,
+                  )
+                  .join("\n");
+          return `${m.name}:\n${items}`;
+        })
+        .join("\n")}`
+    : "";
 
   const messages: Anthropic.MessageParam[] = [
     {

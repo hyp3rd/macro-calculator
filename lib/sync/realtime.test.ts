@@ -18,6 +18,12 @@ vi.mock("@/lib/db", () => ({
   applyServerRecipe: vi.fn(),
   deleteDailyLog: vi.fn(),
   deleteWeightEntry: vi.fn(),
+  // Pass A: realtime DELETE handler now uses applyServerDeletion
+  // (which removes the IDB row AND clears any pending tombstone so
+  // we don't push a redundant server-side DELETE). The old per-store
+  // delete helpers are still mocked because some other tests reach
+  // for them, but the realtime handler now hits applyServerDeletion.
+  applyServerDeletion: vi.fn(),
   deleteCustomFood: vi.fn(),
   deleteMealTemplate: vi.fn(),
   deleteRecipe: vi.fn(),
@@ -160,7 +166,7 @@ describe("startRealtimeSubscription — payload dispatch", () => {
     unsub();
   });
 
-  it("dispatches a DELETE on custom_foods to deleteCustomFood + notifies", async () => {
+  it("dispatches a DELETE on custom_foods to applyServerDeletion + notifies", async () => {
     const { sb, channels } = makeFakeSupabase();
     startRealtimeSubscription(sb, USER_ID);
 
@@ -178,7 +184,16 @@ describe("startRealtimeSubscription — payload dispatch", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(vi.mocked(db.deleteCustomFood)).toHaveBeenCalledWith("abc");
+    // The realtime handler now uses applyServerDeletion (not
+    // deleteCustomFood). This is load-bearing: deleteCustomFood
+    // creates a tombstone, applyServerDeletion does not. Without
+    // this, a peer-device delete would echo back here and we'd push
+    // a redundant server-side DELETE.
+    expect(vi.mocked(db.applyServerDeletion)).toHaveBeenCalledWith(
+      "customFoods",
+      "abc",
+    );
+    expect(vi.mocked(db.deleteCustomFood)).not.toHaveBeenCalled();
     expect(busCb).toHaveBeenCalledTimes(1);
 
     unsub();

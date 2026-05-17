@@ -964,6 +964,84 @@ const MacroCalculator = () => {
     }
   };
 
+  /** Per-meal regeneration — the user clicks the sparkles button on a
+   *  single meal slot. The AI returns ONLY that meal (with name set to
+   *  the slot's name); we replace just that slot's foods. The rest of
+   *  the day's meals are passed as context so the AI doesn't propose
+   *  something culinarily clashing with what's around it. */
+  const handleRegenerateMeal = async (mealId: number) => {
+    if (isGeneratingMealPlan) return;
+    const target = meals.find((m) => m.id === mealId);
+    if (!target) return;
+    setIsGeneratingMealPlan(true);
+    setMealPlanMessage(`Regenerating ${target.name}…`);
+    try {
+      let customFoods: Food[] = [];
+      try {
+        const rows = await listCustomFoods();
+        customFoods = rows.map(customToFood);
+      } catch {
+        // Proceed with builtins only.
+      }
+      const daily = {
+        protein: calculatedValues.protein,
+        carbs: calculatedValues.carbs,
+        fat: calculatedValues.fat,
+        calories: calculatedValues.targetCalories,
+      };
+      const ai = await requestAiMealPlan({
+        targets: daily,
+        dietPreference: personalInfo.dietPreference,
+        mealNames: meals.map((m) => m.name),
+        customFoods,
+        cuisinePreferences: personalInfo.cuisinePreferences ?? [],
+        allergies: personalInfo.allergies ?? [],
+        dislikedFoods: personalInfo.dislikedFoods ?? [],
+        previousMeals: meals,
+        targetMealName: target.name,
+      });
+      if (ai.kind === "ok") {
+        // The AI was told to return exactly one meal. Match by name
+        // (case-insensitive) so a stray model quirk doesn't drop the
+        // payload. If for some reason multiple meals came back, take
+        // the first one matching the target.
+        const replacement = ai.meals.find(
+          (m) => m.name.toLowerCase() === target.name.toLowerCase(),
+        );
+        if (replacement) {
+          setMeals(
+            meals.map((m) =>
+              m.id === target.id ? { ...m, foods: replacement.foods } : m,
+            ),
+          );
+          setMealPlanMessage(`Regenerated ${target.name}.`);
+          setTimeout(() => setMealPlanMessage(""), 4000);
+          return;
+        }
+        setMealPlanMessage(
+          `AI didn't return a ${target.name} meal — try again.`,
+        );
+        return;
+      }
+      const msg =
+        ai.kind === "not-configured"
+          ? "AI not configured — regeneration skipped."
+          : ai.kind === "not-authenticated"
+            ? "Sign in to use AI regeneration."
+            : ai.kind === "rate-limited"
+              ? "AI rate-limited — try again shortly."
+              : ai.kind === "error"
+                ? `Regeneration failed: ${ai.message}`
+                : "Regeneration failed.";
+      setMealPlanMessage(msg);
+    } catch (error) {
+      setMealPlanMessage(`Error regenerating ${target.name}. Try again.`);
+      console.error("Meal regeneration error:", error);
+    } finally {
+      setIsGeneratingMealPlan(false);
+    }
+  };
+
   return (
     <AppShell
       current={view}
@@ -1027,6 +1105,7 @@ const MacroCalculator = () => {
           replaceFood={replaceFood}
           generateMealPlan={generateMealPlan}
           onRefineMealPlan={handleRefineMealPlan}
+          onRegenerateMeal={handleRegenerateMeal}
           onSaveOffToCustom={handleSaveOffToCustom}
           onOpenCustomFoodForm={() => setCustomFoodOpen(true)}
           onOpenCamera={() => setCameraSheetOpen(true)}
