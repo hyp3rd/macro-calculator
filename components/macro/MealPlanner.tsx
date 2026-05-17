@@ -286,7 +286,7 @@ const MealPlanner: React.FC<MealPlannerProps> = ({
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.18 }}
-              className={`overflow-hidden border-b border-border/60 px-5 py-2.5 text-xs ${
+              className={`overflow-hidden whitespace-pre-line border-b border-border/60 px-5 py-2.5 text-xs ${
                 isError
                   ? "text-rose-700 dark:text-rose-400"
                   : "text-muted-foreground"

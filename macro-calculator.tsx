@@ -37,6 +37,7 @@ import { useProfile } from "./hooks/use-profile";
 import { useToday } from "./hooks/use-today";
 import { useUser } from "./hooks/use-user";
 import { requestAiMealPlan } from "./lib/ai-plan";
+import type { CoherenceIssue } from "./lib/ai/plan-coherence";
 import {
   addCustomFood,
   customToFood,
@@ -76,6 +77,20 @@ const DEFAULT_MEALS: Meal[] = [
  *  /api/identify-meal expects. Shared by the in-sheet photo flow and
  *  the paired-phone photo flow. FileReader is the most compatible
  *  cross-browser path. */
+/** Render a short trailing note for the status banner when the AI plan
+ *  came back with coherence warnings the agent loop couldn't fix.
+ *  Empty string means "no warnings" — the banner stays clean. */
+function formatCoherenceNote(issues: CoherenceIssue[] | undefined): string {
+  if (!issues || issues.length === 0) return "";
+  const head = issues.slice(0, 3);
+  const bullets = head.map((i) => `• ${i.message}`).join("\n");
+  const extra =
+    issues.length > head.length
+      ? `\n• …and ${issues.length - head.length} more`
+      : "";
+  return `\nSome issues remain:\n${bullets}${extra}`;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -853,10 +868,12 @@ const MacroCalculator = () => {
         setMeals(ai.meals);
         const summary = summarisePlan(ai.meals, daily);
         const fmt = (n: number) => `${Math.round(n)}%`;
-        setMealPlanMessage(
-          `AI plan — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`,
-        );
-        setTimeout(() => setMealPlanMessage(""), 5000);
+        const base = `AI plan — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`;
+        const issuesNote = formatCoherenceNote(ai.coherenceIssues);
+        setMealPlanMessage(base + issuesNote);
+        // Linger longer when there's a quality warning so the user has
+        // time to actually read which meals need fixing.
+        setTimeout(() => setMealPlanMessage(""), issuesNote ? 12000 : 5000);
         return;
       }
 
@@ -936,10 +953,10 @@ const MacroCalculator = () => {
         setMeals(ai.meals);
         const summary = summarisePlan(ai.meals, daily);
         const fmt = (n: number) => `${Math.round(n)}%`;
-        setMealPlanMessage(
-          `Refined — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`,
-        );
-        setTimeout(() => setMealPlanMessage(""), 5000);
+        const base = `Refined — P:${fmt(summary.percent.protein)} C:${fmt(summary.percent.carbs)} F:${fmt(summary.percent.fat)} of target.`;
+        const issuesNote = formatCoherenceNote(ai.coherenceIssues);
+        setMealPlanMessage(base + issuesNote);
+        setTimeout(() => setMealPlanMessage(""), issuesNote ? 12000 : 5000);
         return;
       }
       // Unlike Auto-fill, we don't fall back to the deterministic

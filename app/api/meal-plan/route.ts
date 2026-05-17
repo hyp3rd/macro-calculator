@@ -4,15 +4,25 @@ import { buildResolutionCatalog, buildSeedCatalog } from "@/lib/ai/catalog";
 import { getAnthropicConfig } from "@/lib/ai/env";
 import { searchOpenFoodFactsServer } from "@/lib/ai/off-search";
 import {
-  aiPlanToMeals,
   type AiPlanShape,
+  aiPlanToMeals,
   unmatchedPickNames,
 } from "@/lib/ai/plan";
+import {
+  type CoherenceIssue,
+  validatePlanCoherence,
+} from "@/lib/ai/plan-coherence";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL: Anthropic.Model = "claude-haiku-4-5";
+// Sonnet 4.6 — the prior Haiku 4.5 model kept producing
+// macro-optimized-but-incoherent plans (standalone olive-oil "lunches",
+// two-fish dinners). Sonnet follows the palatability + coherence rules
+// in the system prompt and reacts well to the validator-driven retry
+// feedback below. Cost is materially higher per token but iteration
+// counts stay flat (1–3) and prompt caching offsets the system prefix.
+const MODEL: Anthropic.Model = "claude-sonnet-4-6";
 /** Hard ceiling on the agent loop. Each iteration is one Anthropic call
  * + (optionally) one OFF search. Realistic plans land in 1–3 iterations.
  * On the very last iteration we force `tool_choice: submit_meal_plan` so
@@ -354,6 +364,11 @@ Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`
   ];
 
   let finalPlan: AiPlanShape | null = null;
+  // Coherence issues that survived the agent loop — populated only when
+  // the loop accepts a flawed plan on the forced-submit final iteration.
+  // Surfaced in the response so the client can hint the user (which
+  // meal violates which rule) rather than silently shipping a bad plan.
+  let finalCoherenceIssues: CoherenceIssue[] = [];
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     // Last iteration → force submit_meal_plan so the loop is *guaranteed*
@@ -465,7 +480,32 @@ Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`
           });
           continue;
         }
+        // Coherence check. Skipped for single-meal regenerations: the
+        // returned plan is one slot in isolation and the full-day rules
+        // (low-day-protein especially) would always fire. Same retry
+        // pattern as the unmatched-name handler above — push an
+        // is_error tool_result with the concrete complaints and let the
+        // model self-correct within the iteration budget.
+        const skipCoherence = !!targetMealName;
+        const coherenceIssues = skipCoherence
+          ? []
+          : validatePlanCoherence(previewMeals, {
+              protein: body.targets.protein,
+              calories: body.targets.calories,
+            });
+        if (coherenceIssues.length > 0 && !isLastIteration) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: `Your submitted plan has problems. Fix them and call submit_meal_plan again with a corrected plan.\n${coherenceIssues
+              .map((i) => `- ${i.message}`)
+              .join("\n")}`,
+            is_error: true,
+          });
+          continue;
+        }
         finalPlan = submitted;
+        finalCoherenceIssues = coherenceIssues;
         break;
       }
       if (toolUse.name === "search_open_food_facts") {
@@ -575,5 +615,9 @@ Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`
     );
   }
 
-  return NextResponse.json({ meals });
+  return NextResponse.json(
+    finalCoherenceIssues.length > 0
+      ? { meals, coherenceIssues: finalCoherenceIssues }
+      : { meals },
+  );
 }

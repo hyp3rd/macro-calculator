@@ -1,6 +1,7 @@
 "use client";
 
 import type { DietPreference, Food, Meal } from "@/components/macro/types";
+import type { CoherenceIssue } from "@/lib/ai/plan-coherence";
 
 export type AiPlanRequest = {
   targets: { protein: number; carbs: number; fat: number; calories: number };
@@ -32,9 +33,15 @@ export type AiPlanRequest = {
 /** Result of asking the AI for a meal plan. `kind: "ok"` always carries
  * a usable `meals` array; everything else carries enough info for the
  * caller to surface a useful message before falling back to the
- * deterministic planner. */
+ * deterministic planner.
+ *
+ * `coherenceIssues` is populated only when the server's validator
+ * caught problems the AI couldn't self-correct within the iteration
+ * budget — the caller should surface them to the user (which meal
+ * violates which rule) so they know to click a refiner pill or
+ * regenerate the offending slot. Absent / empty = clean plan. */
 export type AiPlanResult =
-  | { kind: "ok"; meals: Meal[] }
+  | { kind: "ok"; meals: Meal[]; coherenceIssues?: CoherenceIssue[] }
   | { kind: "not-configured" } // 503 — env or auth gate missing
   | { kind: "not-authenticated" } // 401 — guest user
   | { kind: "rate-limited" } // 429
@@ -62,11 +69,21 @@ export async function requestAiMealPlan(
 
   if (res.ok) {
     try {
-      const data = (await res.json()) as { meals: Meal[] };
+      const data = (await res.json()) as {
+        meals: Meal[];
+        coherenceIssues?: CoherenceIssue[];
+      };
       if (!Array.isArray(data.meals)) {
         return { kind: "error", message: "Malformed AI response." };
       }
-      return { kind: "ok", meals: data.meals };
+      return Array.isArray(data.coherenceIssues) &&
+        data.coherenceIssues.length > 0
+        ? {
+            kind: "ok",
+            meals: data.meals,
+            coherenceIssues: data.coherenceIssues,
+          }
+        : { kind: "ok", meals: data.meals };
     } catch (err) {
       return {
         kind: "error",
