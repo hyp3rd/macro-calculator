@@ -480,3 +480,48 @@ describe("clearAllStores", () => {
     expect(await listCustomFoods()).toHaveLength(0);
   });
 });
+
+describe("computeSortBetween — fractional indexing for drag-and-drop", () => {
+  it("returns a number when both neighbors are null (first item ever)", async () => {
+    const { computeSortBetween } = await import("./db");
+    const v = computeSortBetween(null, null);
+    expect(typeof v).toBe("number");
+    expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it("returns the midpoint when both neighbors have values", async () => {
+    const { computeSortBetween } = await import("./db");
+    expect(computeSortBetween(10, 20)).toBe(15);
+    expect(computeSortBetween(0, 1)).toBe(0.5);
+    expect(computeSortBetween(-5, 5)).toBe(0);
+  });
+
+  it("subtracts 1 when prepending (no left neighbor)", async () => {
+    const { computeSortBetween } = await import("./db");
+    expect(computeSortBetween(null, 10)).toBe(9);
+  });
+
+  it("adds 1 when appending (no right neighbor)", async () => {
+    const { computeSortBetween } = await import("./db");
+    expect(computeSortBetween(10, null)).toBe(11);
+  });
+
+  it("treats undefined the same as null (so callers can spread `row.sortOrder`)", async () => {
+    const { computeSortBetween } = await import("./db");
+    expect(computeSortBetween(undefined, undefined)).toBeGreaterThan(0);
+    expect(computeSortBetween(undefined, 10)).toBe(9);
+    expect(computeSortBetween(10, undefined)).toBe(11);
+  });
+
+  it("can keep subdividing without renumbering (the whole point of fractional indexing)", async () => {
+    const { computeSortBetween } = await import("./db");
+    let a = 0;
+    const b = 1;
+    for (let i = 0; i < 20; i++) {
+      const mid = computeSortBetween(a, b);
+      expect(mid).toBeGreaterThan(a);
+      expect(mid).toBeLessThan(b);
+      a = mid; // keep subdividing into the lower half
+    }
+  });
+});

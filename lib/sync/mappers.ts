@@ -98,6 +98,21 @@ export type CustomFoodRow = {
   sub_category: string | null;
   /** Nullable until the user classifies; client treats null as omnivore-only. */
   diet_kind: string | null;
+  /** Manual drag-and-drop position. Optional + nullable because pre-v7
+   *  rows from the server don't have the column, and rows the user
+   *  hasn't dragged yet leave it null (the client falls back to
+   *  createdAt order). */
+  sort_order?: number | null;
+  /** Macro-breakdown (sugars / fiber / fat-subtypes). All optional +
+   *  nullable per the migration — pre-0008 rows don't have them; we
+   *  treat undefined/null as "unknown" for display purposes. */
+  sugars?: number | null;
+  added_sugars?: number | null;
+  fiber?: number | null;
+  saturated_fat?: number | null;
+  trans_fat?: number | null;
+  mono_fat?: number | null;
+  poly_fat?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -136,6 +151,14 @@ export function customFoodToRow(
     category: food.category ?? null,
     sub_category: food.subCategory ?? null,
     diet_kind: food.dietKind ?? null,
+    sort_order: food.sortOrder ?? null,
+    sugars: food.sugars ?? null,
+    added_sugars: food.addedSugars ?? null,
+    fiber: food.fiber ?? null,
+    saturated_fat: food.saturatedFat ?? null,
+    trans_fat: food.transFat ?? null,
+    mono_fat: food.monoFat ?? null,
+    poly_fat: food.polyFat ?? null,
     created_at: new Date(food.createdAt).toISOString(),
   };
 }
@@ -152,6 +175,14 @@ export function customFoodFromRow(row: CustomFoodRow): CustomFood {
     category: row.category ?? undefined,
     subCategory: row.sub_category ?? undefined,
     dietKind: parseDietKind(row.diet_kind),
+    sortOrder: row.sort_order ?? undefined,
+    sugars: row.sugars ?? undefined,
+    addedSugars: row.added_sugars ?? undefined,
+    fiber: row.fiber ?? undefined,
+    saturatedFat: row.saturated_fat ?? undefined,
+    transFat: row.trans_fat ?? undefined,
+    monoFat: row.mono_fat ?? undefined,
+    polyFat: row.poly_fat ?? undefined,
     createdAt: Date.parse(row.created_at),
   };
 }
@@ -163,6 +194,7 @@ export type MealTemplateRow = {
   user_id: string;
   name: string;
   foods: MealTemplate["foods"];
+  sort_order?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -176,6 +208,7 @@ export function mealTemplateToRow(
     user_id: userId,
     name: template.name,
     foods: template.foods,
+    sort_order: template.sortOrder ?? null,
     created_at: new Date(template.createdAt).toISOString(),
   };
 }
@@ -185,6 +218,7 @@ export function mealTemplateFromRow(row: MealTemplateRow): MealTemplate {
     id: row.id,
     name: row.name,
     foods: row.foods,
+    sortOrder: row.sort_order ?? undefined,
     createdAt: Date.parse(row.created_at),
     updatedAt: Date.parse(row.updated_at),
   };
@@ -199,13 +233,14 @@ export type RecipeRow = {
   ingredients: Recipe["ingredients"];
   cuisine: string | null;
   notes: string | null;
+  sort_order?: number | null;
   created_at: string;
   updated_at: string;
 };
 
 export function recipeToRow(
   userId: string,
-  recipe: Recipe,
+  recipe: Recipe & { sortOrder?: number },
 ): Omit<RecipeRow, "updated_at"> {
   return {
     id: recipe.id,
@@ -214,17 +249,23 @@ export function recipeToRow(
     ingredients: recipe.ingredients,
     cuisine: recipe.cuisine ?? null,
     notes: recipe.notes ?? null,
+    sort_order: recipe.sortOrder ?? null,
     created_at: new Date(recipe.createdAt).toISOString(),
   };
 }
 
-export function recipeFromRow(row: RecipeRow): Recipe {
+/** The IDB row carries `sortOrder` (per the `Sortable` mixin in
+ *  `lib/db.ts`); the global `Recipe` type doesn't, so the mapper
+ *  returns a widened type that includes the optional field. Sync's
+ *  `applyServerRecipe` accepts the wider shape. */
+export function recipeFromRow(row: RecipeRow): Recipe & { sortOrder?: number } {
   return {
     id: row.id,
     name: row.name,
     ingredients: row.ingredients,
     cuisine: row.cuisine ?? undefined,
     notes: row.notes ?? undefined,
+    sortOrder: row.sort_order ?? undefined,
     createdAt: Date.parse(row.created_at),
     updatedAt: Date.parse(row.updated_at),
   };

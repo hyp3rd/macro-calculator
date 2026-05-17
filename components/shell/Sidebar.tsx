@@ -6,6 +6,7 @@ import {
   Activity,
   Calculator,
   ChefHat,
+  LayoutGrid,
   LineChart,
   Settings,
   Utensils,
@@ -19,6 +20,7 @@ export type ViewKey =
   | "progress"
   | "foods"
   | "recipes"
+  | "templates"
   | "settings";
 
 type NavItem = {
@@ -34,6 +36,7 @@ const NAV: NavItem[] = [
   { key: "progress", label: "Progress", icon: LineChart },
   { key: "foods", label: "My Foods", icon: Activity },
   { key: "recipes", label: "Recipes", icon: ChefHat },
+  { key: "templates", label: "Templates", icon: LayoutGrid },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 

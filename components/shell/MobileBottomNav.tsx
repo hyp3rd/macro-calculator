@@ -6,6 +6,7 @@ import {
   Activity,
   Calculator,
   ChefHat,
+  LayoutGrid,
   LineChart,
   Settings,
   Utensils,
@@ -25,6 +26,7 @@ const NAV: NavItem[] = [
   { key: "progress", label: "Progress", icon: LineChart },
   { key: "foods", label: "Foods", icon: Activity },
   { key: "recipes", label: "Recipes", icon: ChefHat },
+  { key: "templates", label: "Tmpl", icon: LayoutGrid },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 

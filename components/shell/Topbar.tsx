@@ -11,6 +11,7 @@ const LABELS: Record<ViewKey, string> = {
   progress: "Progress",
   foods: "My Foods",
   recipes: "Recipes",
+  templates: "Meal Templates",
   settings: "Settings",
 };
 

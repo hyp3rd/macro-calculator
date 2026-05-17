@@ -12,6 +12,22 @@ export type FoodKind =
   | "honey"
   | "plant";
 
+/** Optional macro-breakdown fields surfaced "where available" — OFF
+ *  lookups, AI vision, or user-entered custom foods can populate them;
+ *  the seed catalog leaves them blank. The display layer skips a row
+ *  entirely when no source food in the current view contributes a
+ *  value (rather than rendering a misleading "0g" for unknown). */
+export type MacroBreakdown = {
+  /** Total sugars per 100g, of which "added sugars" is a subset. */
+  sugars?: number;
+  addedSugars?: number;
+  fiber?: number;
+  saturatedFat?: number;
+  transFat?: number;
+  monoFat?: number;
+  polyFat?: number;
+};
+
 export type Food = {
   /** Stable identifier across the three sources. Builtin derives from name,
    * custom uses the IndexedDB key, OFF uses the product barcode. */
@@ -31,7 +47,7 @@ export type Food = {
    * over the category-derived classifier. Set on custom foods at create
    * time; built-in foods can rely on category/subCategory instead. */
   dietKind?: FoodKind;
-};
+} & MacroBreakdown;
 
 export type FoodItem = {
   id: number;
@@ -49,8 +65,11 @@ export type FoodItem = {
     carbsPer100g: number;
     fatPer100g: number;
     caloriesPer100g: number;
-  };
-};
+    /** Per-100g sub-macros at meal-add time, captured so per-meal
+     *  scaling math (`portion/100 * value`) works without re-resolving
+     *  the source food. All optional. */
+  } & MacroBreakdown;
+} & MacroBreakdown;
 
 export type Meal = { id: number; name: string; foods: FoodItem[] };
 

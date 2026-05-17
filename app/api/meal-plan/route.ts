@@ -36,6 +36,17 @@ type RequestBody = {
   /** Soft preference — the AI is asked to avoid these but the converter
    * doesn't filter them. Foods the user dislikes but isn't allergic to. */
   dislikedFoods?: string[];
+  /** Free-text adjustment the user wants applied to a *previously*
+   *  generated plan — sourced from a refiner pill (e.g. "lower sugars",
+   *  "adapt for celiacs"). When present, `previousMeals` must also be
+   *  set so the AI sees what to modify rather than starting from
+   *  scratch. */
+  refinement?: string;
+  /** The meal plan the user wants the AI to adjust. Required when
+   *  `refinement` is set. Each meal is the same shape the meal-planner
+   *  UI uses (id, name, foods). The AI sees the foods + portions and
+   *  is asked to apply the refinement on top. */
+  previousMeals?: Meal[];
 };
 
 /** Generate a coherent one-day meal plan using Claude Haiku 4.5 in a
@@ -151,6 +162,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       ? `Disliked foods (soft preference — avoid when you can, but it's OK to include if it's the only way to hit the targets): ${dislikes.join(", ")}.`
       : "Disliked foods: none specified.";
 
+  // Optional refinement block — appended when the request is a "tweak
+  // this previously-generated plan" rather than a fresh generation.
+  // The user message also includes the previous meals as starting
+  // context (see below); the system prompt just adds the constraint.
+  const refinement = (body.refinement ?? "").trim();
+  const refinementBlock = refinement
+    ? `\n\nThe user wants the following adjustment to the plan you previously suggested below: ${refinement}\nApply this refinement while keeping the macros close to the targets above and respecting the same allergies / diet / cuisine constraints. You may keep meals that already satisfy the refinement unchanged; only swap or adjust the ones that don't.`
+    : "";
+
   const systemPrompt = `You are a meal planner. Design a one-day plan that approximately hits the daily macro targets while keeping food combinations coherent and culturally appropriate per meal.
 
 Rules:
@@ -159,7 +179,7 @@ Rules:
 - Distribution: ${distributionHint}
 - ${cuisineLine}
 - ${allergyLine}
-- ${dislikeLine}
+- ${dislikeLine}${refinementBlock}
 
 How to find foods:
 - A small seed catalog is provided below — use these when they fit.
@@ -180,6 +200,32 @@ ${catalogLines}`;
   // Initial user message uses a content-block array (not a bare string) so
   // we can attach `cache_control` and extend the cached prefix into the
   // transcript as the loop progresses.
+  // When this is a refinement, render the previous meals as a bullet
+  // list the AI can see — far more useful than asking it to re-derive
+  // a plan from scratch when only a constraint changed. Skipped when
+  // there's no previousMeals (i.e. a fresh generation).
+  const previousMealsBlock =
+    refinement &&
+    Array.isArray(body.previousMeals) &&
+    body.previousMeals.length > 0
+      ? `\n\nPreviously suggested plan (to adjust per the refinement above):\n${body.previousMeals
+          .map((m) => {
+            const items =
+              m.foods.length === 0
+                ? "  (empty)"
+                : m.foods
+                    .map(
+                      (f) =>
+                        `  - ${f.name} (${f.portionSize ?? 100} g, ${Math.round(
+                          f.calories,
+                        )} kcal)`,
+                    )
+                    .join("\n");
+            return `${m.name}:\n${items}`;
+          })
+          .join("\n")}`
+      : "";
+
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
@@ -187,7 +233,7 @@ ${catalogLines}`;
         {
           type: "text",
           text: `Daily targets: protein ${body.targets.protein}g, carbs ${body.targets.carbs}g, fat ${body.targets.fat}g, ${body.targets.calories} kcal.
-Meal slots (in order): ${body.mealNames.join(", ")}.
+Meal slots (in order): ${body.mealNames.join(", ")}.${previousMealsBlock}
 
 Plan the day. Use search_open_food_facts as needed, then call submit_meal_plan.`,
           cache_control: { type: "ephemeral" },

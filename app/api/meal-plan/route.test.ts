@@ -259,4 +259,90 @@ describe("/api/meal-plan POST — agent-loop hardening", () => {
     expect(firstUser.content[0].type).toBe("text");
     expect(firstUser.content[0].cache_control).toEqual({ type: "ephemeral" });
   });
+
+  it("passes refinement + previousMeals into the system prompt and the user message", async () => {
+    // Refiner pills (e.g. "Lower sugars") fire a request with these two
+    // optional fields. The AI must see the refinement as an extra rule
+    // in the system prompt AND the previous meals enumerated in the
+    // user message so it has context for what to adjust.
+    const captured: Array<{
+      system: unknown;
+      messages: Array<{
+        role: string;
+        content: Array<{ type: string; text?: string }>;
+      }>;
+    }> = [];
+    mockCreate.mockImplementation(
+      async (params: {
+        system: unknown;
+        messages: Array<{
+          role: string;
+          content: Array<{ type: string; text?: string }>;
+        }>;
+      }) => {
+        captured.push(structuredClone(params));
+        return {
+          id: "m-refine",
+          content: [
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "submit_meal_plan",
+              input: {
+                meals: [
+                  {
+                    name: "Breakfast",
+                    foods: [{ name: "Oats", portionGrams: 50 }],
+                  },
+                ],
+              },
+            },
+          ],
+          stop_reason: "tool_use",
+        };
+      },
+    );
+
+    const res = await POST(
+      makeRequest({
+        ...SAMPLE_BODY,
+        refinement: "Reduce added sugars and high-sugar foods.",
+        previousMeals: [
+          {
+            id: 1,
+            name: "Breakfast",
+            foods: [
+              {
+                id: 1,
+                name: "Sugary cereal",
+                protein: 4,
+                carbs: 80,
+                fat: 2,
+                calories: 380,
+                portionSize: 60,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(captured.length).toBeGreaterThanOrEqual(1);
+
+    // The system prompt is built as an array of text blocks; pull the
+    // joined text out so we can substring-match.
+    const systemBlocks = captured[0].system as Array<{ text: string }>;
+    const systemText = systemBlocks
+      .map((b) => (typeof b === "string" ? b : (b.text ?? "")))
+      .join("\n");
+    expect(systemText).toMatch(/Reduce added sugars and high-sugar foods\./);
+
+    // The initial user message should enumerate the previous meals so
+    // the AI knows what to start from.
+    const firstUserText = (
+      captured[0].messages[0].content[0] as { text: string }
+    ).text;
+    expect(firstUserText).toMatch(/Previously suggested plan/);
+    expect(firstUserText).toMatch(/Sugary cereal/);
+  });
 });

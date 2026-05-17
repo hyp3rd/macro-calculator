@@ -42,6 +42,17 @@ type DraftFood = {
    * (handled by the diet filter), so a missing value still does something
    * sensible. */
   dietKind: FoodKind | "";
+  /** Optional macro-breakdown. Empty string = unknown; the saver omits
+   *  any field the user left blank so the persisted row's value stays
+   *  `undefined` (which the display layer treats as "no data" rather
+   *  than "zero"). All seven mirror the `MacroBreakdown` mixin. */
+  sugars: number | "";
+  addedSugars: number | "";
+  fiber: number | "";
+  saturatedFat: number | "";
+  transFat: number | "";
+  monoFat: number | "";
+  polyFat: number | "";
 };
 
 const EMPTY_DRAFT: DraftFood = {
@@ -52,6 +63,13 @@ const EMPTY_DRAFT: DraftFood = {
   calories: 0,
   brand: "",
   dietKind: "",
+  sugars: "",
+  addedSugars: "",
+  fiber: "",
+  saturatedFat: "",
+  transFat: "",
+  monoFat: "",
+  polyFat: "",
 };
 
 type Props = {
@@ -78,6 +96,13 @@ function toDraft(
       calories: editing.calories,
       brand: editing.brand ?? "",
       dietKind: editing.dietKind ?? "",
+      sugars: editing.sugars ?? "",
+      addedSugars: editing.addedSugars ?? "",
+      fiber: editing.fiber ?? "",
+      saturatedFat: editing.saturatedFat ?? "",
+      transFat: editing.transFat ?? "",
+      monoFat: editing.monoFat ?? "",
+      polyFat: editing.polyFat ?? "",
     };
   }
   return { ...EMPTY_DRAFT, ...initial };
@@ -151,6 +176,29 @@ function Form({
     setDraft(next);
   }
 
+  /** Like setNumeric but distinguishes an empty input from `0` —
+   *  required for the optional sub-macro fields so an unfilled "Sugars"
+   *  saves as undefined (unknown) rather than `0` (which the display
+   *  layer would render as a real zero). */
+  function setOptionalNumeric(
+    field:
+      | "sugars"
+      | "addedSugars"
+      | "fiber"
+      | "saturatedFat"
+      | "transFat"
+      | "monoFat"
+      | "polyFat",
+    raw: string,
+  ) {
+    if (raw.trim() === "") {
+      setDraft({ ...draft, [field]: "" });
+      return;
+    }
+    const v = Number.parseFloat(raw);
+    setDraft({ ...draft, [field]: Number.isNaN(v) ? "" : v });
+  }
+
   async function save() {
     setError(null);
     if (!draft.name.trim()) {
@@ -159,6 +207,10 @@ function Form({
     }
     setSaving(true);
     try {
+      // Helper: empty string → undefined so the persisted row's
+      // sub-macro stays unset, which the display layer reads as
+      // "unknown" rather than "0g".
+      const optNum = (v: number | "") => (v === "" ? undefined : v);
       const payload = {
         name: draft.name.trim(),
         protein: draft.protein,
@@ -167,6 +219,13 @@ function Form({
         calories: draft.calories,
         brand: draft.brand.trim() || undefined,
         dietKind: draft.dietKind === "" ? undefined : draft.dietKind,
+        sugars: optNum(draft.sugars),
+        addedSugars: optNum(draft.addedSugars),
+        fiber: optNum(draft.fiber),
+        saturatedFat: optNum(draft.saturatedFat),
+        transFat: optNum(draft.transFat),
+        monoFat: optNum(draft.monoFat),
+        polyFat: optNum(draft.polyFat),
       };
       let savedFood: CustomFood;
       if (editing) {
@@ -289,6 +348,61 @@ function Form({
             }}
           />
         </div>
+
+        {/* Optional macro-breakdown. Native <details> keeps this
+            collapsed until the user opens it, so the form's main
+            face stays focused on the four core macros. Empty inputs
+            map to undefined on save (not 0) so the display layer
+            distinguishes "unknown" from a real zero. */}
+        <details className="col-span-2 group">
+          <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+            More macros (optional) — sugars, fiber, fat subtypes
+          </summary>
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            <OptionalNumberField
+              id="cf-sugars"
+              label="Sugars / 100g"
+              value={draft.sugars}
+              onChange={(v) => setOptionalNumeric("sugars", v)}
+            />
+            <OptionalNumberField
+              id="cf-added-sugars"
+              label="Added sugars / 100g"
+              value={draft.addedSugars}
+              onChange={(v) => setOptionalNumeric("addedSugars", v)}
+            />
+            <OptionalNumberField
+              id="cf-fiber"
+              label="Fiber / 100g"
+              value={draft.fiber}
+              onChange={(v) => setOptionalNumeric("fiber", v)}
+            />
+            <OptionalNumberField
+              id="cf-sat-fat"
+              label="Saturated fat / 100g"
+              value={draft.saturatedFat}
+              onChange={(v) => setOptionalNumeric("saturatedFat", v)}
+            />
+            <OptionalNumberField
+              id="cf-trans-fat"
+              label="Trans fat / 100g"
+              value={draft.transFat}
+              onChange={(v) => setOptionalNumeric("transFat", v)}
+            />
+            <OptionalNumberField
+              id="cf-mono-fat"
+              label="Mono-unsat. fat / 100g"
+              value={draft.monoFat}
+              onChange={(v) => setOptionalNumeric("monoFat", v)}
+            />
+            <OptionalNumberField
+              id="cf-poly-fat"
+              label="Poly-unsat. fat / 100g"
+              value={draft.polyFat}
+              onChange={(v) => setOptionalNumeric("polyFat", v)}
+            />
+          </div>
+        </details>
       </div>
 
       {error && (
@@ -316,5 +430,32 @@ function Form({
         </Button>
       </DialogFooter>
     </>
+  );
+}
+
+function OptionalNumberField({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number | "";
+  onChange: (raw: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        min="0"
+        step="0.1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="—"
+      />
+    </div>
   );
 }

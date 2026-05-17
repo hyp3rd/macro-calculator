@@ -641,7 +641,7 @@ async function pullCustomFoods(
     supabase
       .from("custom_foods")
       .select(
-        "id, user_id, name, protein, carbs, fat, calories, brand, category, sub_category, diet_kind, created_at, updated_at",
+        "id, user_id, name, protein, carbs, fat, calories, brand, category, sub_category, diet_kind, sort_order, sugars, added_sugars, fiber, saturated_fat, trans_fat, mono_fat, poly_fat, created_at, updated_at",
       )
       .eq("user_id", userId)
       .abortSignal(signal),
@@ -669,7 +669,7 @@ async function pullMealTemplates(
   const { data, error } = await withTimeout("pull meal templates", (signal) =>
     supabase
       .from("meal_templates")
-      .select("id, user_id, name, foods, created_at, updated_at")
+      .select("id, user_id, name, foods, sort_order, created_at, updated_at")
       .eq("user_id", userId)
       .abortSignal(signal),
   );
@@ -697,7 +697,7 @@ async function pullRecipes(
     supabase
       .from("recipes")
       .select(
-        "id, user_id, name, ingredients, cuisine, notes, created_at, updated_at",
+        "id, user_id, name, ingredients, cuisine, notes, sort_order, created_at, updated_at",
       )
       .eq("user_id", userId)
       .abortSignal(signal),

@@ -2,12 +2,33 @@
 
 import { NumberTicker } from "@/components/shell/NumberTicker";
 import React from "react";
-import { CalculatedValues, TotalMacros } from "../../components/macro/types";
+import {
+  CalculatedValues,
+  MacroBreakdown,
+  TotalMacros,
+} from "../../components/macro/types";
 
 interface DailyTotalsProps {
   calculatedValues: CalculatedValues;
   totalMacros: TotalMacros;
+  /** Optional per-day sub-macro totals — sugars / fiber / fat subtypes.
+   *  Rendered as a collapsible breakdown below the main P/C/F/kcal
+   *  tiles. Only rows whose value the aggregator populated render
+   *  (others were never seen in today's foods, so showing "0g" would
+   *  mislead). When the whole object is empty, the breakdown row is
+   *  hidden entirely. */
+  breakdown?: MacroBreakdown;
 }
+
+const SUB_MACRO_LABELS: Record<keyof MacroBreakdown, string> = {
+  sugars: "Sugars",
+  addedSugars: "Added sugars",
+  fiber: "Fiber",
+  saturatedFat: "Saturated fat",
+  transFat: "Trans fat",
+  monoFat: "Mono-unsat. fat",
+  polyFat: "Poly-unsat. fat",
+};
 
 type Row = {
   key: keyof TotalMacros;
@@ -20,6 +41,7 @@ type Row = {
 const DailyTotals: React.FC<DailyTotalsProps> = ({
   calculatedValues,
   totalMacros,
+  breakdown,
 }) => {
   const pct = (current: number, target: number) =>
     target === 0 ? 0 : Math.min(Math.round((current / target) * 100), 100);
@@ -107,6 +129,30 @@ const DailyTotals: React.FC<DailyTotalsProps> = ({
           );
         })}
       </div>
+
+      {breakdown && Object.keys(breakdown).length > 0 && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
+            Breakdown ({Object.keys(breakdown).length} sub-macro
+            {Object.keys(breakdown).length === 1 ? "" : "s"})
+          </summary>
+          <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 font-mono tabular-nums sm:grid-cols-2">
+            {(Object.keys(SUB_MACRO_LABELS) as Array<keyof MacroBreakdown>)
+              .filter((k) => typeof breakdown[k] === "number")
+              .map((k) => (
+                <div
+                  key={k}
+                  className="flex items-baseline justify-between gap-2"
+                >
+                  <dt className="text-muted-foreground">
+                    {SUB_MACRO_LABELS[k]}
+                  </dt>
+                  <dd className="text-foreground">{breakdown[k]} g</dd>
+                </div>
+              ))}
+          </dl>
+        </details>
+      )}
     </div>
   );
 };
