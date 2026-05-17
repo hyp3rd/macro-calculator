@@ -77,7 +77,7 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
       {/* Stack vertically on narrow screens (the description + two
           buttons crammed onto one row looks awkward). From sm up,
           restore the side-by-side layout. */}
-      <header className="flex flex-col gap-3 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+      <header className="flex flex-col gap-2 border-b border-border/60 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2 sm:px-5 sm:py-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold tracking-tight">Add Food</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -109,7 +109,7 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
         </div>
       </header>
 
-      <div className="space-y-4 px-5 py-4">
+      <div className="space-y-4 px-3 py-3 sm:px-5 sm:py-4">
         {/* Search */}
         <div
           ref={suggestionsRef}
@@ -173,10 +173,10 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
                           e.stopPropagation();
                           onSaveOffToCustom(food);
                         }}
-                        className="h-7 w-7"
-                        title="Save to my foods"
+                        className="h-9 w-9 sm:h-8 sm:w-8"
+                        aria-label={`Save ${food.name} to my foods`}
                       >
-                        <Save className="h-3.5 w-3.5" />
+                        <Save className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                       </Button>
                     )}
                   </li>
@@ -273,7 +273,7 @@ const AddFoodForm: React.FC<AddFoodFormProps> = ({
           <Button
             type="button"
             onClick={addFood}
-            className="h-9 gap-1.5"
+            className="h-10 gap-1.5 sm:h-9"
           >
             <Plus className="h-4 w-4" />
             Add to meal

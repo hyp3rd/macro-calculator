@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import FoodItem from "./FoodItem";
+import FoodMobileCard from "./FoodMobileCard";
 
 interface MealItemProps {
   meal: MealType;
@@ -110,14 +111,16 @@ const MealItem: React.FC<MealItemProps> = ({
   return (
     <div
       ref={setNodeRef}
-      className={`px-5 py-4 transition-colors ${isOver ? "bg-accent/40" : ""}`}
+      className={`px-3 py-3 transition-colors sm:px-5 sm:py-4 ${
+        isOver ? "bg-accent/40" : ""
+      }`}
     >
-      <div className="mb-3 flex items-baseline justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
         <h4 className="text-sm font-semibold tracking-tight text-foreground">
           {meal.name}
         </h4>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground sm:text-xs">
             {totalCalories} kcal · P{totalProtein} · C{totalCarbs} · F{totalFat}
           </span>
           <DropdownMenu>
@@ -126,10 +129,10 @@ const MealItem: React.FC<MealItemProps> = ({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-muted-foreground"
+                className="h-9 w-9 text-muted-foreground sm:h-8 sm:w-8"
                 aria-label={`${meal.name} actions`}
               >
-                <MoreHorizontal className="h-3.5 w-3.5" />
+                <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -180,27 +183,54 @@ const MealItem: React.FC<MealItemProps> = ({
           {isOver ? "Drop here" : "No foods added yet"}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border/60">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/60 bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                <th
-                  className="w-8 px-1 py-2"
-                  aria-hidden
-                />
-                <th className="px-3 py-2 text-left">Food</th>
-                <th className="px-3 py-2 text-center">Portion</th>
-                <th className="px-3 py-2 text-center">P</th>
-                <th className="px-3 py-2 text-center">C</th>
-                <th className="px-3 py-2 text-center">F</th>
-                <th className="px-3 py-2 text-center">kcal</th>
-                <th className="px-3 py-2 text-right" />
-              </tr>
-            </thead>
-            <SortableContext
-              items={sortableIds}
-              strategy={verticalListSortingStrategy}
-            >
+        <SortableContext
+          items={sortableIds}
+          strategy={verticalListSortingStrategy}
+        >
+          {/* Mobile: card list. The 7-column dense table below is
+              illegible at < 640px even with horizontal scroll; the
+              card layout puts the food name + macros front-and-centre
+              with full-size touch targets for replace / edit / delete. */}
+          <ul className="divide-y divide-border/60 rounded-md border border-border/60 bg-background sm:hidden">
+            {meal.foods.map((food) => (
+              <FoodMobileCard
+                key={food.id}
+                food={food}
+                mealId={meal.id}
+                editingFood={editingFood}
+                replacingFood={replacingFood}
+                replacementSuggestionsRef={replacementSuggestionsRef}
+                startEditingFood={startEditingFood}
+                cancelEditing={cancelEditing}
+                handleEditPortionChange={handleEditPortionChange}
+                saveEditedPortion={saveEditedPortion}
+                startReplacingFood={startReplacingFood}
+                cancelReplacing={cancelReplacing}
+                handleReplacementSearch={handleReplacementSearch}
+                replaceFood={replaceFood}
+                removeFood={removeFood}
+              />
+            ))}
+          </ul>
+
+          {/* Desktop: keep the dense table for at-a-glance comparison. */}
+          <div className="hidden overflow-x-auto rounded-md border border-border/60 sm:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <th
+                    className="w-8 px-1 py-2"
+                    aria-hidden
+                  />
+                  <th className="px-3 py-2 text-left">Food</th>
+                  <th className="px-3 py-2 text-center">Portion</th>
+                  <th className="px-3 py-2 text-center">P</th>
+                  <th className="px-3 py-2 text-center">C</th>
+                  <th className="px-3 py-2 text-center">F</th>
+                  <th className="px-3 py-2 text-center">kcal</th>
+                  <th className="px-3 py-2 text-right" />
+                </tr>
+              </thead>
               <tbody className="divide-y divide-border/60">
                 {meal.foods.map((food) => (
                   <FoodItem
@@ -222,9 +252,9 @@ const MealItem: React.FC<MealItemProps> = ({
                   />
                 ))}
               </tbody>
-            </SortableContext>
-          </table>
-        </div>
+            </table>
+          </div>
+        </SortableContext>
       )}
     </div>
   );

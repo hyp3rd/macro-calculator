@@ -151,11 +151,11 @@ export function ApplyRecipeDialog({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      className="h-9 w-9 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
                       onClick={() => handleDelete(r.id)}
-                      title="Delete recipe"
+                      aria-label={`Delete recipe ${r.name}`}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                     </Button>
                   </li>
                 );

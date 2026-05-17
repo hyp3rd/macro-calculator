@@ -81,7 +81,7 @@ const DailyTotals: React.FC<DailyTotalsProps> = ({
       <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
         Daily Totals
       </p>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4 sm:gap-x-4">
         {rows.map((row) => {
           const current = totalMacros[row.key];
           const p = pct(current, row.target);

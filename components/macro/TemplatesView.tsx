@@ -311,29 +311,29 @@ function SortableTemplateRow({
       style={style}
       className="px-3 py-2.5"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2">
         {draggable && (
           <button
             type="button"
             {...handleProps}
-            className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:text-foreground active:cursor-grabbing"
+            className="flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:text-foreground active:cursor-grabbing sm:h-7"
             aria-label={`Drag to reorder ${template.name}`}
           >
-            <GripVertical className="h-3.5 w-3.5" />
+            <GripVertical className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
           </button>
         )}
         <button
           type="button"
           onClick={onToggleExpand}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent sm:h-7 sm:w-7"
           aria-label={
             isExpanded ? "Collapse ingredients" : "Expand ingredients"
           }
         >
           {isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
           )}
         </button>
         <div className="min-w-0 flex-1">
@@ -357,21 +357,21 @@ function SortableTemplateRow({
           type="button"
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          className="h-9 w-9 sm:h-8 sm:w-8"
           onClick={onRename}
-          title="Rename"
+          aria-label={`Edit ${template.name}`}
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Pencil className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
         </Button>
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+          className="h-9 w-9 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
           onClick={onDelete}
-          title="Delete"
+          aria-label={`Delete ${template.name}`}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
         </Button>
       </div>
       {isExpanded && (

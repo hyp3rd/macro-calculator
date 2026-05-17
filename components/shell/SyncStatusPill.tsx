@@ -58,7 +58,7 @@ export function SyncStatusPill() {
   }
 
   const styles =
-    "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] tabular-nums transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:hover:bg-transparent";
+    "flex h-9 items-center gap-1.5 rounded-md px-2.5 text-[11px] tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:hover:bg-transparent sm:h-7 sm:py-1";
   const syncing = status.state === "syncing";
   const hasPending = pending > 0;
 
@@ -195,11 +195,11 @@ function DiscardButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-7 sm:w-7"
       title="Discard local changes"
       aria-label="Discard local changes"
     >
-      <Trash2 className="h-3 w-3" />
+      <Trash2 className="h-3.5 w-3.5" />
     </button>
   );
 }
