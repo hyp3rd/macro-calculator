@@ -11,21 +11,21 @@ on conflict (id) do nothing;
 -- access; downloads happen via signed URLs minted server-side or via
 -- supabase.storage.download() while a session is active.
 
-create policy "exports_owner_select"
+create policy if not exists "exports_owner_select"
   on storage.objects for select
   using (
     bucket_id = 'exports'
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
-create policy "exports_owner_insert"
+create policy if not exists "exports_owner_insert"
   on storage.objects for insert
   with check (
     bucket_id = 'exports'
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
-create policy "exports_owner_update"
+create policy if not exists "exports_owner_update"
   on storage.objects for update
   using (
     bucket_id = 'exports'
@@ -36,7 +36,7 @@ create policy "exports_owner_update"
     and (storage.foldername (name))[1] = auth.uid ()::text
   );
 
-create policy "exports_owner_delete"
+create policy if not exists "exports_owner_delete"
   on storage.objects for delete
   using (
     bucket_id = 'exports'
